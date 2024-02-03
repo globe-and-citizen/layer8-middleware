@@ -1,6 +1,6 @@
 {
   "name": "layer8_middleware",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "The Middleware portion of the Layer8 pipeline",
   "main": "index.js",
   "scripts": {
