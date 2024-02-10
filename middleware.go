@@ -120,7 +120,7 @@ func doECDHWithClient(request, response js.Value) {
 
 	// Send the response back to the user.
 	response.Call("setHeader", "x-shared-secret", ss_b64)
-	response.Call("setHeader", "mp_JWT", MpJWT)
+	response.Call("setHeader", "mp-JWT", MpJWT)
 	result := response.Call("hasHeader", "x-shared-secret")
 	fmt.Println("result: ", result)
 	response.Call("send")
@@ -379,7 +379,7 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 		res.Set("statusMessage", jres.StatusText)
 		res.Call("set", js.ValueOf(map[string]interface{}{
 			"content-type": "application/json",
-			"mp_JWT":       MpJWT, //RAVI notice this addition too.... is this what daniel is referring too...
+			"mp-JWT":       MpJWT, //RAVI notice this addition too.... is this what daniel is referring too...
 		}))
 		res.Call("end", js.Global().Get("JSON").Call("stringify", js.ValueOf(map[string]interface{}{
 			"data": base64.URLEncoding.EncodeToString(b),
@@ -504,7 +504,7 @@ func static(this js.Value, args []js.Value) interface{} {
 	res.Set("statusMessage", jres.StatusText)
 	res.Call("set", js.ValueOf(map[string]interface{}{
 		"content-type": "application/json",
-		"mp_JWT":       mpJWT,
+		"mp-JWT":       mpJWT,
 	}))
 	res.Call("end", js.Global().Get("JSON").Call("stringify", js.ValueOf(map[string]interface{}{
 		"data": base64.URLEncoding.EncodeToString(encrypted),
