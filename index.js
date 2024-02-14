@@ -1,4 +1,5 @@
 // STEP 1: POLYFILL THE CRYPTO LIBRARY
+const fs = require('fs');
 const crypto = require("crypto").webcrypto;
 globalThis.crypto = crypto;
 
@@ -30,6 +31,33 @@ WebAssembly.instantiate(decode(wasmBin), importObject).then(async (results) => {
 });
 
 // STEP 6: EXPORT
-module.exports = function Layer8(req, res, next) { 
-    WASMMiddleware(req, res, next);
-};
+// module.exports = function Layer8(req, res, next) { 
+//     WASMMiddleware(req, res, next);
+// };
+
+module.exports = {
+    tunnel: (req, res, next) => {
+        WASMMiddleware(req, res, next);
+    },
+    static: (dir) => {
+        return (req, res, next) => {
+            ServeStatic(req, res, dir, fs);
+        }
+    },
+    multipart: (options) => {
+        return {
+            single: (name) => {
+                return (req, res, next) => {
+                    const multi = ProcessMultipart(options, fs)
+                    multi.single(req, res, next, name)
+                }
+            },
+            array: (name) => {
+                return (req, res, next) => {
+                    const multi = ProcessMultipart(options, fs)
+                    multi.array(req, res, next, name)
+                }
+            }
+        }
+    }
+}
