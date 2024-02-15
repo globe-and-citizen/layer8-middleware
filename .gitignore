@@ -155,3 +155,5 @@ out
 .pnp.*
 
 middleware.json
+
+/bin/middleware.wasm
