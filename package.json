@@ -4,7 +4,7 @@
   "description": "The Middleware portion of the Layer8 pipeline",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Testing goes here...\" && exit 0"
   },
   "repository": {
     "type": "git",
