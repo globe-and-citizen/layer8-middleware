@@ -198,7 +198,7 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 		var enc map[string]interface{}
 		json.Unmarshal([]byte(body), &enc)
 
-		fmt.Println("data from line 201: ", data)
+		fmt.Println("enc from line 201: ", enc)
 		data, err := base64.URLEncoding.DecodeString(enc["data"].(string))
 		if err != nil {
 			fmt.Println("error decoding request:", err.Error())
