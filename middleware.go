@@ -15,7 +15,7 @@ import (
 	utils "github.com/globe-and-citizen/layer8-utils"
 )
 
-const VERSION = "1.0.3"
+const VERSION = "1.0.8"
 
 var (
 	privKey_ECDH  *utils.JWK
@@ -41,90 +41,6 @@ func main() {
 	js.Global().Set("ProcessMultipart", js.FuncOf(multipart))
 	js.Global().Set("TestWASM", js.FuncOf(TestWASM))
 	<-c
-}
-
-func doECDHWithClient(request, response js.Value) {
-	fmt.Println("TOP: ", request)
-	headers := request.Get("headers")
-	fmt.Println("headers: ", headers)
-	userPubJWK := headers.Get("x-ecdh-init").String()
-	// fmt.Println("userPubJWK: ", userPubJWK)
-	userPubJWKConverted, err := utils.B64ToJWK(userPubJWK)
-	if err != nil {
-		fmt.Println("Failure to decode userPubJWK", err.Error())
-		return
-	}
-
-	clientUUID := headers.Get("x-client-uuid").String()
-	fmt.Println("clientUUID: ", clientUUID)
-
-	ss, err := privKey_ECDH.GetECDHSharedSecret(userPubJWKConverted)
-	if err != nil {
-		fmt.Println("Unable to get ECDH shared secret", err.Error())
-		return
-	}
-
-	fmt.Println("shared secret: ", ss)
-	// spSymmetricKey = ss
-
-	UUIDMapOfKeys = append(UUIDMapOfKeys, map[string]*utils.JWK{clientUUID: ss})
-
-	ss_b64, err := ss.ExportAsBase64()
-	if err != nil {
-		fmt.Println("Unable to export shared secret as base64", err.Error())
-		return
-	}
-
-	MpJWT := headers.Get("mp-jwt").String()
-	fmt.Println("MpJWT at SP BE (Middleware): ", MpJWT)
-
-	UUIDMapOfJWTs = append(UUIDMapOfJWTs, map[string]string{clientUUID: MpJWT})
-
-	// jsBody := request.Get("body")
-	// if jsBody.String() == "<undefined>" {
-	// 	println("body not defined")
-	// 	return
-	// }
-
-	// object := js.Global().Get("JSON").Call("parse", jsBody)
-
-	// data := object.Get("data").String()
-	// fmt.Println("data: ", data)
-
-	response.Set("send", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
-		// encrypt response
-		jres := utils.Response{}
-		jres.Body = []byte(ss_b64)
-		jres.Status = 200
-		jres.StatusText = "ECDH Successfully Completed!"
-		// jres.Headers = make(map[string]string)
-		// jres.Headers["x-shared-secret"] = ss_b64
-
-		if err != nil {
-			println("error serializing json response:", err.Error())
-			response.Set("statusCode", 500)
-			response.Set("statusMessage", "Failure to encode ECDH init response")
-			return nil
-		}
-
-		// send response
-		response.Set("statusCode", jres.Status)
-		response.Set("statusMessage", jres.StatusText)
-
-		server_pubKeyECDH, _ := pubKey_ECDH.ExportAsBase64()
-
-		response.Call("end", server_pubKeyECDH)
-		fmt.Println("SS_Server: ", ss)
-		return nil
-	}))
-
-	// Send the response back to the user.
-	response.Call("setHeader", "x-shared-secret", ss_b64)
-	response.Call("setHeader", "mp-JWT", MpJWT)
-	result := response.Call("hasHeader", "x-shared-secret")
-	fmt.Println("result: ", result)
-	response.Call("send")
-	return
 }
 
 // WASM Middleware Version 2 Does not depend on the Express Body Parser//
