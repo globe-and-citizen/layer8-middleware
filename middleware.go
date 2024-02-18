@@ -15,7 +15,7 @@ import (
 	utils "github.com/globe-and-citizen/layer8-utils"
 )
 
-const VERSION = "0.0.xx"
+const VERSION = "Version: Please, please work..."
 
 var (
 	privKey_ECDH  *utils.JWK
@@ -181,6 +181,7 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 	}))
 
 	req.Call("on", "end", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		fmt.Println("[Middleware] len(body) after call to 'on' 'data': ", len(body))
 		fmt.Println("[Middleware] Middleware Checkpoint 3")
 		// parse body and decrypt the "data" field
 		var enc map[string]interface{}
