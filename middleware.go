@@ -15,7 +15,7 @@ import (
 	utils "github.com/globe-and-citizen/layer8-utils"
 )
 
-const VERSION = "1.0.3"
+const VERSION = "0.0.xx"
 
 var (
 	privKey_ECDH  *utils.JWK
@@ -44,52 +44,37 @@ func main() {
 }
 
 func doECDHWithClient(request, response js.Value) {
-	fmt.Println("TOP: ", request)
+	fmt.Println("[Middleware] ECDH Initialized")
 	headers := request.Get("headers")
-	fmt.Println("headers: ", headers)
 	userPubJWK := headers.Get("x-ecdh-init").String()
-	// fmt.Println("userPubJWK: ", userPubJWK)
+
 	userPubJWKConverted, err := utils.B64ToJWK(userPubJWK)
 	if err != nil {
-		fmt.Println("Failure to decode userPubJWK", err.Error())
+		fmt.Println("[Middleware] Failure to decode userPubJWK", err.Error()) // Ravi maybe suggested re attempt here?
 		return
 	}
 
 	clientUUID := headers.Get("x-client-uuid").String()
-	fmt.Println("clientUUID: ", clientUUID)
+	fmt.Println("[Middleware] clientUUID during ECDH initialization: ", clientUUID) // one
 
 	ss, err := privKey_ECDH.GetECDHSharedSecret(userPubJWKConverted)
 	if err != nil {
-		fmt.Println("Unable to get ECDH shared secret", err.Error())
+		fmt.Println("[Middleware] Unable to get ECDH shared secret", err.Error())
 		return
 	}
-
-	fmt.Println("shared secret: ", ss)
-	// spSymmetricKey = ss
 
 	UUIDMapOfKeys = append(UUIDMapOfKeys, map[string]*utils.JWK{clientUUID: ss})
 
 	ss_b64, err := ss.ExportAsBase64()
 	if err != nil {
-		fmt.Println("Unable to export shared secret as base64", err.Error())
+		fmt.Println("[Middleware] Unable to export shared secret as base64", err.Error())
 		return
 	}
 
 	MpJWT := headers.Get("mp-jwt").String()
-	fmt.Println("MpJWT at SP BE (Middleware): ", MpJWT)
+	fmt.Println("[Middleware] MpJWT at sp_mock: ", MpJWT)
 
 	UUIDMapOfJWTs = append(UUIDMapOfJWTs, map[string]string{clientUUID: MpJWT})
-
-	// jsBody := request.Get("body")
-	// if jsBody.String() == "<undefined>" {
-	// 	println("body not defined")
-	// 	return
-	// }
-
-	// object := js.Global().Get("JSON").Call("parse", jsBody)
-
-	// data := object.Get("data").String()
-	// fmt.Println("data: ", data)
 
 	response.Set("send", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		// encrypt response
@@ -97,8 +82,6 @@ func doECDHWithClient(request, response js.Value) {
 		jres.Body = []byte(ss_b64)
 		jres.Status = 200
 		jres.StatusText = "ECDH Successfully Completed!"
-		// jres.Headers = make(map[string]string)
-		// jres.Headers["x-shared-secret"] = ss_b64
 
 		if err != nil {
 			println("error serializing json response:", err.Error())
@@ -114,21 +97,22 @@ func doECDHWithClient(request, response js.Value) {
 		server_pubKeyECDH, _ := pubKey_ECDH.ExportAsBase64()
 
 		response.Call("end", server_pubKeyECDH)
-		fmt.Println("SS_Server: ", ss)
 		return nil
 	}))
 
 	// Send the response back to the user.
-	response.Call("setHeader", "x-shared-secret", ss_b64)
+	response.Call("setHeader", "x-shared-secret", ss_b64) // RAVI this needs work...
 	response.Call("setHeader", "mp-JWT", MpJWT)
 	result := response.Call("hasHeader", "x-shared-secret")
-	fmt.Println("result: ", result)
+	fmt.Println("[Middleware] SS_Server: ", ss_b64)
+	fmt.Println("[Middleware] ECDH Initialized: ", result)
 	response.Call("send")
 	return
 }
 
 // WASM Middleware Version 2 Does not depend on the Express Body Parser//
 func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
+	fmt.Println("[Middleware] Middleware Checkpoint 1")
 	// Get the request and response objects and the next function
 	req := args[0]
 	res := args[1]
@@ -145,13 +129,15 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 	// Decide if this is a redirect to ECDH init.
 	isECDHInit := headers.Get("x-ecdh-init").String()
 	if isECDHInit != "<undefined>" {
+		fmt.Println("[Middleware] ECHD will trigger becuase header 'isECDHInit' != '<undefined>'")
 		doECDHWithClient(req, res)
 		return nil
 	}
 
 	clientUUID := headers.Get("x-client-uuid").String()
-	fmt.Println("clientUUID: ", clientUUID)
+	fmt.Println("[Middleware] clientUUID: ", clientUUID) // two
 	if clientUUID == "<undefined>" {
+		fmt.Println("[Middleware] ECHD will trigger becuase clientUUID == '<undefined>'")
 		doECDHWithClient(req, res)
 		return nil
 	}
@@ -186,6 +172,7 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 		return nil
 	}
 
+	fmt.Println("[Middleware] Middleware Checkpoint 2")
 	var body string
 
 	req.Call("on", "data", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
@@ -194,13 +181,23 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 	}))
 
 	req.Call("on", "end", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		fmt.Println("[Middleware] Middleware Checkpoint 3")
 		// parse body and decrypt the "data" field
 		var enc map[string]interface{}
 		json.Unmarshal([]byte(body), &enc)
 
+		if enc["data"] == nil {
+			fmt.Println("[Middleware] error. enc['data'] == <nil>")
+			fmt.Println("[Middleware] enc: ", enc)
+			res.Set("statusCode", 500)
+			res.Set("statusMessage", "error. enc['data'] == <nil>")
+			res.Call("end", "500 Internal Server Error")
+			return nil
+		}
+
 		data, err := base64.URLEncoding.DecodeString(enc["data"].(string))
 		if err != nil {
-			fmt.Println("error decoding request:", err.Error())
+			fmt.Println("[Middleware] error decoding request:", err.Error())
 			res.Set("statusText", "Could not decode request: "+err.Error())
 			res.Set("statusCode", 500)
 			return nil
@@ -208,7 +205,7 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 
 		b, err := spSymmetricKey.SymmetricDecrypt(data)
 		if err != nil {
-			fmt.Println("error decrypting request:", err.Error())
+			fmt.Println("[Middleware] error decrypting request:", err.Error())
 			res.Set("statusText", "Could not decrypt request: "+err.Error())
 			res.Set("statusCode", 500)
 			return nil
@@ -217,7 +214,7 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 		// parse the decrypted data into a request object
 		jreq, err := utils.FromJSONRequest(b)
 		if err != nil {
-			fmt.Println("error serializing json request:", err.Error())
+			fmt.Println("[Middleware] error serializing json request:", err.Error())
 			res.Set("statusText", "Could not decode request: "+err.Error())
 			res.Set("statusCode", 500)
 			return nil
@@ -225,6 +222,7 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 
 		switch strings.ToLower(jreq.Headers["Content-Type"]) {
 		case "application/layer8.buffer+json": // this is used for multipart/form-data
+			fmt.Println("[Middleware] Case content-type: 'application/layer8.buffer+json'")
 			var (
 				reqBody  map[string]interface{}
 				formData = js.Global().Get("FormData").New()
@@ -235,7 +233,7 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 			randomBytes := make([]byte, 16)
 			_, err = rand.Read(randomBytes)
 			if err != nil {
-				fmt.Println("error generating random bytes:", err.Error())
+				fmt.Println("[Middleware] error generating random bytes:", err.Error())
 				res.Set("statusCode", 500)
 				res.Set("statusMessage", "Could not generate random bytes: "+err.Error())
 				return nil
@@ -254,7 +252,7 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 					case "File":
 						buff, err := base64.StdEncoding.DecodeString(val["buff"].(string))
 						if err != nil {
-							fmt.Println("error decoding file buffer:", err.Error())
+							fmt.Println("[Middleware] error decoding file buffer:", err.Error())
 							res.Set("statusCode", 500)
 							res.Set("statusMessage", "Could not decode file buffer: "+err.Error())
 							return nil
@@ -284,9 +282,16 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 			headers.Set("Content-Type", "multipart/form-data; boundary="+boundary)
 			req.Set("body", formData)
 		default:
+			fmt.Println("[Middleware] Case 'default' for content-type")
 			var reqBody map[string]interface{}
-			json.Unmarshal(jreq.Body, &reqBody)
-
+			err := json.Unmarshal(jreq.Body, &reqBody)
+			if err != nil {
+				fmt.Println("[Middleware] Error unmarshalling jreq.Body")
+				res.Set("statusCode", 500)
+				res.Set("statusMessage", "Error unmarshalling jreq.Body of: "+err.Error())
+				res.Call("end", "500 Internal Server Error")
+				return nil
+			}
 			req.Set("body", reqBody)
 			headers.Set("Content-Type", "application/json")
 		}
@@ -300,6 +305,7 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 			headers.Set(k, v)
 		}
 
+		fmt.Println("[Middleware] Middleware Checkpoint 4")
 		// continue to next middleware/handler
 		next.Invoke()
 		return nil
@@ -307,12 +313,13 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 
 	// OVERWRITE THE SEND FUNCTION
 	res.Set("send", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		fmt.Println("[Middleware] the send function is being overwritten.")
 		var (
 			data = args[0]
 			b    []byte
 			err  error
 		)
-
+		fmt.Println("[Middleware] Data to be sent: ", data)
 		if data.Type() == js.TypeObject {
 			switch data.Get("constructor").Get("name").String() {
 			case "Object":
@@ -345,6 +352,7 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 		jres.StatusText = res.Get("statusMessage").String()
 		jres.Headers = make(map[string]string)
 		if res.Get("headers").String() == "<undefined>" {
+			fmt.Println("[Middleware] No headers added to response in NodeJS. Empty headers map will be added.")
 			res.Set("headers", js.ValueOf(map[string]interface{}{}))
 		}
 		js.Global().Get("Object").Call("keys", res.Get("headers")).Call("forEach", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
@@ -359,6 +367,8 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 			return nil
 		}
 
+		fmt.Println("[Middleware] len of jres.ToJSON() ", len(b))
+
 		b, err = spSymmetricKey.SymmetricEncrypt(b)
 		if err != nil {
 			println("error encrypting response:", err.Error())
@@ -367,12 +377,12 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 			return nil
 		}
 
-		// RAVI THIS WAS ADDED
 		resHeaders := make(map[string]interface{})
 		for k, v := range jres.Headers {
 			resHeaders[k] = v
 		}
-		//resHeaders["mp-jwt"] = MpJWT
+
+		fmt.Println("[Middleware] resHeaders return : ", resHeaders)
 
 		// Send response
 		res.Set("statusCode", jres.Status)
@@ -392,6 +402,7 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 }
 
 func static(this js.Value, args []js.Value) interface{} {
+	fmt.Println("[Middleware] layer8_middleware.static has been triggered")
 	var (
 		req     = args[0]
 		res     = args[1]
@@ -420,7 +431,7 @@ func static(this js.Value, args []js.Value) interface{} {
 
 	path, err := url.QueryUnescape(path)
 	if err != nil {
-		println("error url decoding path:", err.Error())
+		println("[middleware] error url decoding path:", err.Error())
 		res.Set("statusCode", 500)
 		res.Set("statusMessage", "Internal Server Error")
 		res.Call("end", "500 Internal Server Error")
@@ -438,11 +449,14 @@ func static(this js.Value, args []js.Value) interface{} {
 
 	// return the default EncryptedImageData if the request is not a layer8 request
 	if headers.String() == "<undefined>" || headers.Get("x-tunnel").String() == "<undefined>" {
+		fmt.Println("[Middleware] encrypted image returned because headers.String() == '<undefined>' || headers.Get('x-tunnel').String() == '<undefined>'")
 		return returnEncryptedImage()
 	}
 
 	clientUUID := headers.Get("x-client-uuid").String()
+
 	if clientUUID == "<undefined>" {
+		fmt.Println("[Middleware] encrypted image returned because clientUUID == '<undefined>'")
 		return returnEncryptedImage()
 	}
 
@@ -453,7 +467,7 @@ func static(this js.Value, args []js.Value) interface{} {
 		}
 	}
 
-	fmt.Println("Received this mpJWT 1: ", mpJWT)
+	fmt.Println("[Middleware] mpJWT received in .static() call: ", mpJWT)
 
 	var sym *utils.JWK
 	for _, v := range UUIDMapOfKeys {
@@ -462,12 +476,14 @@ func static(this js.Value, args []js.Value) interface{} {
 		}
 	}
 	if sym == nil {
+		fmt.Println("[Middleware] encrypted image returned because sym == nil")
 		return returnEncryptedImage()
 	}
 
 	// read the file
 	buffer := fs.Call("readFileSync", path)
 	b := make([]byte, buffer.Get("length").Int())
+	fmt.Println("[Middleware] length of bytes read by readFileSync call: ", len(b))
 	js.CopyBytesToGo(b, buffer)
 
 	// create a response object
@@ -482,7 +498,7 @@ func static(this js.Value, args []js.Value) interface{} {
 
 	b, err = jres.ToJSON()
 	if err != nil {
-		println("error serializing json response:", err.Error())
+		println("[Middleware] error serializing json response:", err.Error())
 		res.Set("statusCode", 500)
 		res.Set("statusMessage", "Internal Server Error")
 		res.Call("end", "500 Internal Server Error")
@@ -492,7 +508,7 @@ func static(this js.Value, args []js.Value) interface{} {
 	// encrypt the file
 	encrypted, err := sym.SymmetricEncrypt(b)
 	if err != nil {
-		println("error encrypting file:", err.Error())
+		println("[Middleware] error encrypting file:", err.Error())
 		res.Set("statusCode", 500)
 		res.Set("statusMessage", "Internal Server Error")
 		res.Call("end", "500 Internal Server Error")
@@ -509,6 +525,7 @@ func static(this js.Value, args []js.Value) interface{} {
 	res.Call("end", js.Global().Get("JSON").Call("stringify", js.ValueOf(map[string]interface{}{
 		"data": base64.URLEncoding.EncodeToString(encrypted),
 	})))
+	println("[Middleware] .static() has completed")
 	return nil
 }
 
@@ -697,8 +714,8 @@ func parseJSObjectToSlice(obj js.Value) []interface{} {
 }
 
 func async_test_WASM(this js.Value, args []js.Value) interface{} {
-	fmt.Println("Fisrt argument: ", args[0])
-	fmt.Println("Second argument: ", args[1])
+	fmt.Println("[Middleware] Fisrt argument: ", args[0])
+	fmt.Println("[Middleware] Second argument: ", args[1])
 	var resolve_reject_internals = func(this js.Value, args []js.Value) interface{} {
 		resolve := args[0]
 		//reject := args[1]
@@ -716,150 +733,6 @@ func async_test_WASM(this js.Value, args []js.Value) interface{} {
 }
 
 func TestWASM(this js.Value, args []js.Value) interface{} {
-	fmt.Println("TestWasm Ran")
+	fmt.Println("[Middleware] TestWasm Ran")
 	return js.ValueOf("42")
 }
-
-// func WASMMiddleware(this js.Value, args []js.Value) interface{} {
-// 	// get the request and response objects and the next function
-// 	req := args[0]
-// 	res := args[1]
-// 	next := args[2]
-
-// 	//fmt.Println("Get Rdy to Error out...")
-
-// 	// check for layer8 request
-// 	headers := req.Get("headers")
-// 	if headers.String() == "<undefined>" {
-// 		next.Invoke()
-// 		return nil
-// 	}
-
-// 	isECDHInit := headers.Get("x-ecdh-init").String()
-// 	if isECDHInit != "<undefined>" {
-// 		doECDHWithClient(req, res)
-// 		return nil
-// 	}
-
-// 	// get the body. This depends on the express.json
-// 	jsBody := req.Get("body")
-// 	if jsBody.String() == "<undefined>" {
-// 		println("body not defined")
-// 		res.Set("statusCode", 400)
-// 		res.Set("statusMessage", "Invalid request")
-// 		return nil
-// 	}
-
-// 	data, err := base64.URLEncoding.DecodeString(jsBody.Get("data").String())
-// 	if err != nil {
-// 		println("error decoding request:", err.Error())
-// 		res.Set("statusCode", 500)
-// 		res.Set("statusMessage", "Internal server error")
-// 		return nil
-// 	}
-
-// 	b, err := spSymmetricKey.SymmetricDecrypt(data)
-// 	if err != nil {
-// 		println("error decrypting request:", err.Error())
-// 		res.Set("statusCode", 400)
-// 		res.Set("statusMessage", "Could not decrypt request")
-// 		return nil
-// 	}
-
-// 	jreq, err := utils.FromJSONRequest(b)
-// 	if err != nil {
-// 		println("error serializing json request:", err.Error())
-// 		res.Set("statusCode", 400)
-// 		res.Set("statusMessage", "Could not decode request")
-// 		return nil
-// 	}
-
-// 	req.Set("method", jreq.Method)
-// 	for k, v := range jreq.Headers {
-// 		headers.Set(k, v)
-// 	}
-// 	var reqBody map[string]interface{}
-// 	json.Unmarshal(jreq.Body, &reqBody)
-// 	req.Set("body", reqBody)
-
-// 	// OVERWRITE THE SEND FUNCTION
-// 	res.Set("send", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
-// 		// convert body to readable format
-// 		data := args[0]
-// 		var b []byte
-
-// 		if data.Type() == js.TypeObject {
-// 			switch data.Get("constructor").Get("name").String() {
-// 			case "Object":
-// 				b, err = json.Marshal(parseJSObjectToMap(data))
-// 				if err != nil {
-// 					println("error serializing json response:", err.Error())
-// 					res.Set("statusCode", 500)
-// 					res.Set("statusMessage", "Could not encode response")
-// 					return nil
-// 				}
-// 			case "Array":
-// 				b, err = json.Marshal(parseJSObjectToSlice(data))
-// 				if err != nil {
-// 					println("error serializing json response:", err.Error())
-// 					res.Set("statusCode", 500)
-// 					res.Set("statusMessage", "Could not encode response")
-// 					return nil
-// 				}
-// 			default:
-// 				b = []byte(data.String())
-// 			}
-// 		} else {
-// 			b = []byte(data.String())
-// 		}
-
-// 		// encrypt response
-// 		jres := utils.Response{}
-// 		jres.Body = b
-// 		jres.Status = res.Get("statusCode").Int()
-// 		jres.StatusText = res.Get("statusMessage").String()
-// 		jres.Headers = make(map[string]string)
-// 		if res.Get("headers").String() == "<undefined>" {
-// 			res.Set("headers", js.ValueOf(map[string]interface{}{}))
-// 		}
-// 		js.Global().Get("Object").Call("keys", res.Get("headers")).Call("forEach", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
-// 			jres.Headers[args[0].String()] = args[1].String()
-// 			return nil
-// 		}))
-// 		b, err = jres.ToJSON()
-// 		if err != nil {
-// 			println("error serializing json response:", err.Error())
-// 			res.Set("statusCode", 500)
-// 			res.Set("statusMessage", "Could not encode response")
-// 			return nil
-// 		}
-
-// 		//b, err = utils.Dep_SymmetricEncrypt(b, secret)
-// 		b, err := spSymmetricKey.SymmetricEncrypt(b)
-// 		//fmt.Println("b: ", b)
-// 		if err != nil {
-// 			println("error encrypting response:", err.Error())
-// 			res.Set("statusCode", 500)
-// 			res.Set("statusMessage", "Could not encrypt response")
-// 			return nil
-// 		}
-
-// 		resHeaders := make(map[string]interface{})
-// 		for k, v := range jres.Headers {
-// 			resHeaders[k] = v
-// 		}
-
-// 		// send response
-// 		res.Set("statusCode", jres.Status)
-// 		res.Set("statusMessage", jres.StatusText)
-// 		res.Call("set", js.ValueOf(resHeaders))
-// 		res.Call("end", js.Global().Get("JSON").Call("stringify", js.ValueOf(map[string]interface{}{
-// 			"data": base64.URLEncoding.EncodeToString(b),
-// 		})))
-// 		return nil
-// 	}))
-
-// 	// continue to next middleware/handler
-// 	next.Invoke()
-// 	return nil
-// }
