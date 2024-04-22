@@ -2,14 +2,15 @@ package main
 
 import (
 	"encoding/base64"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
-
-	"fmt"
+	"syscall/js"
 
 	"globe-and-citizen/layer8/middleware/internals"
-	"globe-and-citizen/layer8/middleware/js"
+	gojs "globe-and-citizen/layer8/middleware/js"
 	"globe-and-citizen/layer8/middleware/storage"
 
 	utils "github.com/globe-and-citizen/layer8-utils"
@@ -39,14 +40,15 @@ func main() {
 }
 
 // WASM Middleware Version 2 Does not depend on the Express Body Parser//
-func WASMMiddleware_v2(this *js.Value, args []*js.Value) interface{} {
+func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 	// Get the request and response objects and the next function
 	var (
-		req     = args[0]
-		res     = args[1]
-		next    = args[2]
-		headers = req.Get("headers")
-		db      = storage.GetInMemStorage()
+		req       = args[0]
+		res       = args[1]
+		next      = args[2]
+		headers   = req.Get("headers")
+		goHeaders = gojs.Unmarshal(headers)
+		db        = storage.GetInMemStorage()
 	)
 
 	// proceed to next middleware/handler request is not a layer8 request
@@ -54,18 +56,30 @@ func WASMMiddleware_v2(this *js.Value, args []*js.Value) interface{} {
 		next.Invoke()
 		return nil
 	}
+	
+	initECDH := func() interface{} {
+		secret, pub, mpjwt, err := internals.InitializeECDH(goHeaders)
+		if err != nil {
+			println(err.Error())
+			res.Set("statusCode", 500)
+			res.Set("statusMessage", "Failure to initialize ECDH")
+			res.Call("end", "500 Internal Server Error")
+			return nil
+		}
 
-	// Decide if this is a redirect to ECDH init.
-	isECDHInit := headers.Get("x-ecdh-init").String()
-	if isECDHInit != "<undefined>" {
-		internals.InitializeECDH(req, res)
+		res.Set("statusCode", 200)
+		res.Set("statusMessage", "ECDH Successfully Completed!")
+		res.Call("setHeader", "x-shared-secret", secret)
+		res.Call("setHeader", "mp-JWT", mpjwt)
+		res.Call("end", pub)
 		return nil
 	}
 
+	// Decide if this is a redirect to ECDH init.
+	isECDHInit := headers.Get("x-ecdh-init").String()
 	clientUUID := headers.Get("x-client-uuid").String()
-	if clientUUID == "<undefined>" {
-		internals.InitializeECDH(req, res)
-		return nil
+	if isECDHInit != "<undefined>" || clientUUID == "<undefined>" {
+		return initECDH()
 	}
 
 	// continue to next middleware/handler if it's a request for static files
@@ -82,8 +96,7 @@ func WASMMiddleware_v2(this *js.Value, args []*js.Value) interface{} {
 		}
 	}
 	if spSymmetricKey == nil {
-		internals.InitializeECDH(req, res)
-		return nil
+		return initECDH()
 	}
 
 	// Get the JWT for this client
@@ -94,30 +107,113 @@ func WASMMiddleware_v2(this *js.Value, args []*js.Value) interface{} {
 		}
 	}
 	if MpJWT == "" {
-		internals.InitializeECDH(req, res)
-		return nil
+		return initECDH()
 	}
 
 	var body string
 
-	req.Call("on", "data", js.FuncOf(func(this *js.Value, args []*js.Value) interface{} {
+	req.Call("on", "data", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		body += args[0].Call("toString").String()
 		return nil
 	}))
 
-	req.Call("on", "end", js.FuncOf(func(this *js.Value, args []*js.Value) interface{} {
-		return internals.ProcessData(req, res, headers, next, body, spSymmetricKey)
+	req.Call("on", "end", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		var (
+			formdata   = js.Global().Get("FormData").New()
+			goFormdata = gojs.Formdata{
+				FormData: formdata,
+				Append: func(key string, value interface{}, t gojs.Type) {
+					switch t {
+					case gojs.TypeString:
+						formdata.Call("append", key, value.(string))
+					case gojs.TypeNumber:
+						formdata.Call("append", key, value.(float64))
+					case gojs.TypeBoolean:
+						formdata.Call("append", key, value.(bool))
+					}
+				},
+				AppendFile: func(key string, file gojs.File) {
+					uint8Array := js.Global().Get("Uint8Array").New(file.Size)
+					js.CopyBytesToJS(uint8Array, file.Buff)
+
+					fileObj := js.Global().Get("File").New(
+						[]interface{}{uint8Array},
+						file.Name,
+						map[string]interface{}{"type": file.Type},
+					)
+
+					formdata.Call("append", key, fileObj)
+				},
+			}
+		)
+		resp, reqt := internals.ProcessData(body, goHeaders, spSymmetricKey, &goFormdata)
+		if reqt == nil {
+			res.Set("statusCode", resp.Status)
+			res.Set("statusMessage", resp.StatusText)
+			return nil
+		}
+
+		// set the method and headers
+		req.Set("method", reqt.Method)
+		for k, v := range reqt.Headers {
+			// we do not need to set the content-type header
+			if strings.ToLower(k) == "content-type" {
+				continue
+			}
+			headers.Set(k, v)
+		}
+
+		if reqt.Body != nil {
+			var body map[string]interface{}
+			json.Unmarshal(reqt.Body, &body)
+
+			req.Set("body", body)
+		} else {
+			req.Set("body", formdata)
+		}
+
+		// continue to next middleware/handler
+		next.Invoke()
+		return nil
 	}))
 
 	// OVERWRITE THE SEND FUNCTION
-	res.Set("send", js.FuncOf(func(this *js.Value, args []*js.Value) interface{} {
-		return internals.SendData(res, args[0], spSymmetricKey, MpJWT)
+	res.Set("send", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		// we'll need to convert some of the args to a map
+		// this is for instances where the user wants to send a json response
+		// and the args are stringified json
+		data := new(gojs.Value)
+		if args[0].Type() == js.TypeString {
+			var (
+				mapData map[string]interface{}
+				err = json.Unmarshal([]byte(args[0].String()), &mapData)
+			)
+			if err != nil {
+				println("error unmarshalling json data:", err.Error())
+				res.Set("statusCode", 500)
+				res.Set("statusMessage", "Internal Server Error")
+				res.Call("end", "500 Internal Server Error")
+				return nil
+			}
+			data = gojs.NewValue(mapData)
+		} else {
+			data = gojs.Unmarshal(args[0])
+		}
+
+		response := internals.PrepareData(gojs.Unmarshal(res), data, spSymmetricKey, MpJWT)
+		res.Set("statusCode", response.Status)
+		res.Set("statusMessage", response.StatusText)
+		res.Call("set", js.ValueOf(MapOfStringsToMapOfInterfaces(response.Headers)))
+		res.Call("end", js.Global().Get("JSON").Call("stringify", js.ValueOf(map[string]interface{}{
+			"data": base64.URLEncoding.EncodeToString(response.Body),
+		})))
+		return nil
 	}))
 
 	return nil
 }
 
-func static(this *js.Value, args []*js.Value) interface{} {
+func static(this js.Value, args []js.Value) interface{} {
 	var (
 		req     = args[0]
 		res     = args[1]
@@ -237,7 +333,7 @@ func static(this *js.Value, args []*js.Value) interface{} {
 	return nil
 }
 
-func multipart(this *js.Value, args []*js.Value) interface{} {
+func multipart(this js.Value, args []js.Value) interface{} {
 	var (
 		options = args[0]
 		fs      = args[1]
@@ -245,7 +341,7 @@ func multipart(this *js.Value, args []*js.Value) interface{} {
 		dest = options.Get("dest").String()
 	)
 
-	single := js.FuncOf(func(this *js.Value, args []*js.Value) interface{} {
+	single := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		var (
 			req   = args[0]
 			next  = args[2]
@@ -280,7 +376,7 @@ func multipart(this *js.Value, args []*js.Value) interface{} {
 			return nil
 		}
 
-		file.Call("arrayBuffer").Call("then", js.FuncOf(func(this *js.Value, args []*js.Value) interface{} {
+		file.Call("arrayBuffer").Call("then", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 			uint8Array := js.Global().Get("Uint8Array").New(args[0])
 
 			// write the file to the destination directory
@@ -298,7 +394,7 @@ func multipart(this *js.Value, args []*js.Value) interface{} {
 		return nil
 	})
 
-	array := js.FuncOf(func(this *js.Value, args []*js.Value) interface{} {
+	array := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		var (
 			req   = args[0]
 			next  = args[2]
@@ -329,7 +425,7 @@ func multipart(this *js.Value, args []*js.Value) interface{} {
 
 		// write the files to the destination directory
 		fileObjs := []interface{}{}
-		files.Call("forEach", js.FuncOf(func(this *js.Value, args []*js.Value) interface{} {
+		files.Call("forEach", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 			file := args[0]
 			index := args[1].Int()
 
@@ -337,7 +433,7 @@ func multipart(this *js.Value, args []*js.Value) interface{} {
 				return nil
 			}
 
-			file.Call("arrayBuffer").Call("then", js.FuncOf(func(this *js.Value, args []*js.Value) interface{} {
+			file.Call("arrayBuffer").Call("then", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 				uint8Array := js.Global().Get("Uint8Array").New(args[0])
 
 				// write the file to the destination directory
@@ -369,10 +465,10 @@ func multipart(this *js.Value, args []*js.Value) interface{} {
 }
 
 // UTILS
-func async_test_WASM(this *js.Value, args []*js.Value) interface{} {
+func async_test_WASM(this js.Value, args []js.Value) interface{} {
 	fmt.Println("Fisrt argument: ", args[0])
 	fmt.Println("Second argument: ", args[1])
-	var resolve_reject_internals = func(this *js.Value, args []*js.Value) interface{} {
+	var resolve_reject_internals = func(this js.Value, args []js.Value) interface{} {
 		resolve := args[0]
 		//reject := args[1]
 		go func() {
@@ -388,7 +484,15 @@ func async_test_WASM(this *js.Value, args []*js.Value) interface{} {
 	return promise
 }
 
-func TestWASM(this *js.Value, args []*js.Value) interface{} {
+func TestWASM(this js.Value, args []js.Value) interface{} {
 	fmt.Println("TestWasm Ran")
 	return js.ValueOf("42")
+}
+
+func MapOfStringsToMapOfInterfaces(m map[string]string) map[string]interface{} {
+	mi := make(map[string]interface{})
+	for k, v := range m {
+		mi[k] = v
+	}
+	return mi
 }

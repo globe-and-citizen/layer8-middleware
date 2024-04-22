@@ -1,7 +1,7 @@
 package internals
 
 import (
-	"fmt"
+	"errors"
 
 	"globe-and-citizen/layer8/middleware/js"
 	"globe-and-citizen/layer8/middleware/storage"
@@ -9,62 +9,44 @@ import (
 	utils "github.com/globe-and-citizen/layer8-utils"
 )
 
-func InitializeECDH(request, response *js.Value) {
+// InitializeECDH initializes the ECDH key exchange
+//
+// Arguments:
+//   - request: the request object
+//
+// Returns:
+//   - sharedSecret: the shared secret
+//   - pub: the server public key
+//   - mpJWT: the JWT
+//   - error: an error if the function fails
+func InitializeECDH(headers *js.Value) (string, string, string, error) {
 	db := storage.GetInMemStorage()
 
-	headers := request.Get("headers")
-	userPubJWK, err := utils.B64ToJWK(headers.Get("x-ecdh-init").String())
+	userPubJWK, err := utils.B64ToJWK(headers.Get("x-ecdh-init").(string))
 	if err != nil {
-		fmt.Println("Failure to decode userPubJWK", err.Error())
-		return
+		return "", "", "", errors.New("Failure to decode userPubJWK: " + err.Error())
 	}
 
-	clientUUID := headers.Get("x-client-uuid").String()
+	clientUUID := headers.Get("x-client-uuid").(string)
 
 	ss, err := db.ECDH.GetPrivateKey().GetECDHSharedSecret(userPubJWK)
 	if err != nil {
-		fmt.Println("Unable to get ECDH shared secret", err.Error())
-		return
+		return "", "", "", errors.New("Unable to get ECDH shared secret: " + err.Error())
 	}
 	db.Keys.Add(clientUUID, ss)
 
 	sharedSecret, err := ss.ExportAsBase64()
 	if err != nil {
-		fmt.Println("Unable to export shared secret as base64", err.Error())
-		return
+		return "", "", "", errors.New("Unable to export shared secret as base64: " + err.Error())
 	}
 
-	mpJWT := headers.Get("mp-jwt").String()
+	pub, err := db.ECDH.GetPublicKey().ExportAsBase64()
+	if err != nil {
+		return "", "", "", errors.New("Unable to export public key as base64: " + err.Error())
+	}
+
+	mpJWT := headers.Get("mp-jwt").(string)
 	db.JWTs.Add(clientUUID, mpJWT)
 
-	response.Set("send", js.FuncOf(func(this *js.Value, args []*js.Value) interface{} {
-		// encrypt response
-		jres := utils.Response{}
-		jres.Body = []byte(sharedSecret)
-		jres.Status = 200
-		jres.StatusText = "ECDH Successfully Completed!"
-		// jres.Headers = make(map[string]string)
-		// jres.Headers["x-shared-secret"] = sharedSecret
-
-		if err != nil {
-			println("error serializing json response:", err.Error())
-			response.Set("statusCode", 500)
-			response.Set("statusMessage", "Failure to encode ECDH init response")
-			return nil
-		}
-
-		// send response
-		response.Set("statusCode", jres.Status)
-		response.Set("statusMessage", jres.StatusText)
-
-		serverPub, _ := db.ECDH.GetPublicKey().ExportAsBase64()
-
-		response.Call("end", serverPub)
-		return nil
-	}))
-
-	response.Call("setHeader", "x-shared-secret", sharedSecret)
-	response.Call("setHeader", "mp-JWT", mpJWT)
-	response.Call("send")
-	return
+	return sharedSecret, pub, mpJWT, nil
 }

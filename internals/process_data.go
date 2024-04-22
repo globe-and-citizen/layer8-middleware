@@ -12,42 +12,47 @@ import (
 	utils "github.com/globe-and-citizen/layer8-utils"
 )
 
-func ProcessData(req, res, headers, next *js.Value, body string, symmKey *utils.JWK) interface{} {
+// ProcessData decrypts the request body and processes it. It then sets the method and
+// headers for the request and appends the data to the FormData object
+//
+// It returns a Response object and a Request object. When the Response object is not nil,
+// it means that an error occurred and the request should be stopped.
+func ProcessData(rawdata string, headers *js.Value, key *utils.JWK, fd *js.Formdata) (
+	*utils.Response, *utils.Request,
+) {
+	response := new(utils.Response)
 	// parse body and decrypt the "data" field
 	var enc map[string]interface{}
-	json.Unmarshal([]byte(body), &enc)
+	json.Unmarshal([]byte(rawdata), &enc)
 
 	data, err := base64.URLEncoding.DecodeString(enc["data"].(string))
 	if err != nil {
 		fmt.Println("error decoding request:", err.Error())
-		res.Set("statusText", "Could not decode request: "+err.Error())
-		res.Set("statusCode", 500)
-		return nil
+		response.Status = 500
+		response.StatusText = "Could not decode request: " + err.Error()
+		return response, nil
 	}
 
-	b, err := symmKey.SymmetricDecrypt(data)
+	b, err := key.SymmetricDecrypt(data)
 	if err != nil {
 		fmt.Println("error decrypting request:", err.Error())
-		res.Set("statusText", "Could not decrypt request: "+err.Error())
-		res.Set("statusCode", 500)
-		return nil
+		response.Status = 500
+		response.StatusText = "Could not decrypt request: " + err.Error()
+		return response, nil
 	}
 
 	// parse the decrypted data into a request object
 	jreq, err := utils.FromJSONRequest(b)
 	if err != nil {
 		fmt.Println("error serializing json request:", err.Error())
-		res.Set("statusText", "Could not decode request: "+err.Error())
-		res.Set("statusCode", 500)
-		return nil
+		response.Status = 500
+		response.StatusText = "Could not decode request: " + err.Error()
+		return response, nil
 	}
 
 	switch strings.ToLower(jreq.Headers["Content-Type"]) {
 	case "application/layer8.buffer+json": // this is used for multipart/form-data
-		var (
-			reqBody  map[string]interface{}
-			formData = js.Global().Get("FormData").New()
-		)
+		var reqBody map[string]interface{}
 
 		json.Unmarshal(jreq.Body, &reqBody)
 
@@ -55,9 +60,9 @@ func ProcessData(req, res, headers, next *js.Value, body string, symmKey *utils.
 		_, err = rand.Read(randomBytes)
 		if err != nil {
 			fmt.Println("error generating random bytes:", err.Error())
-			res.Set("statusCode", 500)
-			res.Set("statusMessage", "Could not generate random bytes: "+err.Error())
-			return nil
+			response.Status = 500
+			response.StatusText = "Could not generate random bytes: " + err.Error()
+			return response, nil
 		}
 		boundary := fmt.Sprintf("----Layer8FormBoundary%s", base64.StdEncoding.EncodeToString(randomBytes))
 
@@ -74,52 +79,36 @@ func ProcessData(req, res, headers, next *js.Value, body string, symmKey *utils.
 					buff, err := base64.StdEncoding.DecodeString(val["buff"].(string))
 					if err != nil {
 						fmt.Println("error decoding file buffer:", err.Error())
-						res.Set("statusCode", 500)
-						res.Set("statusMessage", "Could not decode file buffer: "+err.Error())
-						return nil
+						response.Status = 500
+						response.StatusText = "Could not decode file buffer: " + err.Error()
+						return response, nil
 					}
 
-					// converting the byte array to a uint8array so that it can be sent to the next
-					// handler as a file object
-					uInt8Array := js.Global().Get("Uint8Array").New(val["size"].(float64))
-					js.CopyBytesToJS(uInt8Array, buff)
-
-					file := js.Global().Get("File").New(
-						[]interface{}{uInt8Array},
-						val["name"].(string),
-						map[string]interface{}{"type": val["type"].(string)},
-					)
-					formData.Call("append", k, file)
+					file := js.File{
+						Size: val["size"].(float64),
+						Name: val["name"].(string),
+						Type: val["type"].(string),
+						Buff: buff,
+					}
+					fd.AppendFile(k, file)
 				case "String":
-					formData.Call("append", k, val["value"].(string))
+					fd.Append(k, val["value"], js.TypeString)
 				case "Number":
-					formData.Call("append", k, val["value"].(float64))
+					fd.Append(k, val["value"], js.TypeNumber)
 				case "Boolean":
-					formData.Call("append", k, val["value"].(bool))
+					fd.Append(k, val["value"], js.TypeBoolean)
 				}
 			}
 		}
 
-		headers.Set("Content-Type", "multipart/form-data; boundary="+boundary)
-		req.Set("body", formData)
-	default:
-		var reqBody map[string]interface{}
-		json.Unmarshal(jreq.Body, &reqBody)
-
-		req.Set("body", reqBody)
-		headers.Set("Content-Type", "application/json")
-	}
-
-	// set the method and headers
-	req.Set("method", jreq.Method)
-	for k, v := range jreq.Headers {
-		if strings.ToLower(k) == "content-type" {
-			continue
+		jreq.Headers = map[string]string{
+			"Content-Type": "multipart/form-data; boundary=" + boundary,
 		}
-		headers.Set(k, v)
+	default:
+		jreq.Headers = map[string]string{
+			"Content-Type": "application/json",
+		}
 	}
 
-	// continue to next middleware/handler
-	next.Invoke()
-	return nil
+	return nil, jreq
 }
