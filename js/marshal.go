@@ -132,7 +132,7 @@ func (v Value) Constructor() string {
 	return v._constructor
 }
 
-// Unmarshal unmarshals a syscall/js.Value into a map[string]interface{}
+// Unmarshal unmarshals a `syscall/js.Value` into the internal `Value` type.
 //
 // Note that only primitive types are supported and will be unmarshaled
 //   - Number

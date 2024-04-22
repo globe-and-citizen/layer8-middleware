@@ -10,9 +10,8 @@ import (
 	"syscall/js"
 
 	"globe-and-citizen/layer8/middleware/internals"
-	gojs "globe-and-citizen/layer8/middleware/js"
 	"globe-and-citizen/layer8/middleware/storage"
-
+	gojs "globe-and-citizen/layer8/middleware/js"
 	utils "github.com/globe-and-citizen/layer8-utils"
 )
 

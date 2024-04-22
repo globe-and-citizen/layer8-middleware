@@ -8,29 +8,6 @@ import (
 	utils "github.com/globe-and-citizen/layer8-utils"
 )
 
-// data := map[string]interface{}{
-// 	"username": "deestarks",
-// 	"password": "deestarks",
-// }
-// d := js.NewValue(data)
-// &Value{
-// 	_type: 	TypeObject
-// 	_constructor: "Object"
-// 	value: map[string]interface{}{
-// 		"username": "deestarks",
-// 		"password": "deestarks",
-// 	}
-// }
-// 
-// d := js.Unmarshal(jsValue)
-// &Value{
-// 	_type: 	TypeObject
-// 	_constructor: "Object"
-// 	value: map[string]interface{}{
-// 		"username": "deestarks",
-// 		"password": "deestarks",
-// 	}
-// }
 func PrepareData(res, data *js.Value, symmKey *utils.JWK, jwt string) *utils.Response {
 	var (
 		b   []byte
