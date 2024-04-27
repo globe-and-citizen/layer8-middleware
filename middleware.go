@@ -119,7 +119,7 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 	req.Call("on", "end", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		var (
 			formdata   = js.Global().Get("FormData").New()
-			goFormdata = gojs.Formdata{
+			goFormdata = &gojs.Formdata{
 				FormData: formdata,
 				Append: func(key string, value interface{}, t gojs.Type) {
 					switch t {
@@ -145,7 +145,7 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 				},
 			}
 		)
-		resp, reqt := internals.ProcessData(body, goHeaders, spSymmetricKey, &goFormdata)
+		resp, reqt := internals.ProcessData(body, goHeaders, spSymmetricKey, goFormdata)
 		if reqt == nil {
 			res.Set("statusCode", resp.Status)
 			res.Set("statusMessage", resp.StatusText)
@@ -155,10 +155,6 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 		// set the method and headers
 		req.Set("method", reqt.Method)
 		for k, v := range reqt.Headers {
-			// we do not need to set the content-type header
-			if strings.ToLower(k) == "content-type" {
-				continue
-			}
 			headers.Set(k, v)
 		}
 

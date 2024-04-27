@@ -49,12 +49,18 @@ func ProcessData(rawdata string, headers *js.Value, key *utils.JWK, fd *js.Formd
 		response.StatusText = "Could not decode request: " + err.Error()
 		return response, nil
 	}
+	if jreq.Headers == nil {
+		jreq.Headers = make(map[string]string)
+	}
 
 	switch strings.ToLower(jreq.Headers["Content-Type"]) {
 	case "application/layer8.buffer+json": // this is used for multipart/form-data
 		var reqBody map[string]interface{}
 
 		json.Unmarshal(jreq.Body, &reqBody)
+
+		// clear the body as it will be replaced by the formdata
+		jreq.Body = nil
 
 		randomBytes := make([]byte, 16)
 		_, err = rand.Read(randomBytes)
@@ -101,12 +107,10 @@ func ProcessData(rawdata string, headers *js.Value, key *utils.JWK, fd *js.Formd
 			}
 		}
 
-		jreq.Headers = map[string]string{
-			"Content-Type": "multipart/form-data; boundary=" + boundary,
-		}
+		jreq.Headers["Content-Type"] = "multipart/form-data; boundary=" + boundary
 	default:
-		jreq.Headers = map[string]string{
-			"Content-Type": "application/json",
+		if contentType, ok := jreq.Headers["Content-Type"]; !ok || contentType == "" {
+			jreq.Headers["Content-Type"] = "application/json"
 		}
 	}
 
