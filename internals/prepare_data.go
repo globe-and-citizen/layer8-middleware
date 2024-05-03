@@ -2,6 +2,7 @@ package internals
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"globe-and-citizen/layer8/middleware/js"
 
@@ -14,38 +15,40 @@ func PrepareData(res, data *js.Value, symmKey *utils.JWK, jwt string) *utils.Res
 		err error
 	)
 
-	if data.Type() == js.TypeObject {
-		switch data.Constructor() {
-		case "Object":
-			b, err = json.Marshal(data.Value().(map[string]interface{}))
-			if err != nil {
-				println("error serializing json response:", err.Error())
-				return &utils.Response{
-					Status:     500,
-					StatusText: "Could not encode response",
-				}
+	switch data.Type {
+	case js.TypeObject:
+		b, err = json.Marshal(data.GetValue().(map[string]interface{}))
+		if err != nil {
+			println("error serializing json response:", err.Error())
+			return &utils.Response{
+				Status:     500,
+				StatusText: "Could not encode response",
 			}
-		case "Array":
-			b, err = json.Marshal(data.Value().([]interface{}))
-			if err != nil {
-				println("error serializing json response:", err.Error())
-				return &utils.Response{
-					Status:     500,
-					StatusText: "Could not encode response",
-				}
-			}
-		default:
-			b = []byte(data.String())
 		}
-	} else {
+	case js.TypeArray:
+		b, err = json.Marshal(data.GetValue().([]interface{}))
+		if err != nil {
+			println("error serializing json response:", err.Error())
+			return &utils.Response{
+				Status:     500,
+				StatusText: "Could not encode response",
+			}
+		}
+	case js.TypeString:
 		b = []byte(data.String())
+	case js.TypeNumber:
+		b = []byte(fmt.Sprintf("%f", data.Number()))
+	case js.TypeBoolean:
+		b = []byte(fmt.Sprintf("%t", data.Bool()))
+	default:
+		b = []byte(fmt.Sprintf("%v", data.GetValue()))
 	}
 
 	// Encrypt response
 	jres := utils.Response{
-		Body:       b,
-		Status:     200,
-		Headers:    make(map[string]string),
+		Body:    b,
+		Status:  200,
+		Headers: make(map[string]string),
 	}
 	if res.Get("statusCode") != nil {
 		jres.Status = int(res.Get("statusCode").(float64))
@@ -58,7 +61,12 @@ func PrepareData(res, data *js.Value, symmKey *utils.JWK, jwt string) *utils.Res
 		res.Set("headers", map[string]interface{}{})
 	}
 	for k, v := range res.Get("headers").(map[string]interface{}) {
-		jres.Headers[k] = v.(string)
+		switch val := v.(type) {
+		case string:
+			jres.Headers[k] = val
+		case *js.Value:
+			jres.Headers[k] = val.String()
+		}
 	}
 
 	b, err = jres.ToJSON()
@@ -77,11 +85,6 @@ func PrepareData(res, data *js.Value, symmKey *utils.JWK, jwt string) *utils.Res
 			Status:     500,
 			StatusText: "Could not encrypt response",
 		}
-	}
-
-	resHeaders := make(map[string]interface{})
-	for k, v := range jres.Headers {
-		resHeaders[k] = v
 	}
 
 	return &utils.Response{

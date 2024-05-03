@@ -25,8 +25,26 @@ func (k *keys) Add(key string, value *utils.JWK) {
 	*k = append(*k, map[string]*utils.JWK{key: value})
 }
 
+func (k *keys) Get(key string) *utils.JWK {
+	for _, v := range *k {
+		if jwk, ok := v[key]; ok {
+			return jwk
+		}
+	}
+	return nil
+}
+
 func (j *jwts) Add(key string, value string) {
 	*j = append(*j, map[string]string{key: value})
+}
+
+func (j *jwts) Get(key string) string {
+	for _, v := range *j {
+		if jwt, ok := v[key]; ok {
+			return jwt
+		}
+	}
+	return ""
 }
 
 type inMemStorage struct {

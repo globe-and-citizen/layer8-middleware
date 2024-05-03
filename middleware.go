@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -10,8 +11,10 @@ import (
 	"syscall/js"
 
 	"globe-and-citizen/layer8/middleware/internals"
-	"globe-and-citizen/layer8/middleware/storage"
 	gojs "globe-and-citizen/layer8/middleware/js"
+	"globe-and-citizen/layer8/middleware/marshaller"
+	"globe-and-citizen/layer8/middleware/storage"
+
 	utils "github.com/globe-and-citizen/layer8-utils"
 )
 
@@ -46,7 +49,7 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 		res       = args[1]
 		next      = args[2]
 		headers   = req.Get("headers")
-		goHeaders = gojs.Unmarshal(headers)
+		goHeaders = marshaller.Unmarshal(headers)
 		db        = storage.GetInMemStorage()
 	)
 
@@ -55,7 +58,7 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 		next.Invoke()
 		return nil
 	}
-	
+
 	initECDH := func() interface{} {
 		secret, pub, mpjwt, err := internals.InitializeECDH(goHeaders)
 		if err != nil {
@@ -118,53 +121,95 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 
 	req.Call("on", "end", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		var (
-			formdata   = js.Global().Get("FormData").New()
-			goFormdata = &gojs.Formdata{
-				FormData: formdata,
-				Append: func(key string, value interface{}, t gojs.Type) {
-					switch t {
-					case gojs.TypeString:
-						formdata.Call("append", key, value.(string))
-					case gojs.TypeNumber:
-						formdata.Call("append", key, value.(float64))
-					case gojs.TypeBoolean:
-						formdata.Call("append", key, value.(bool))
-					}
-				},
-				AppendFile: func(key string, file gojs.File) {
-					uint8Array := js.Global().Get("Uint8Array").New(file.Size)
-					js.CopyBytesToJS(uint8Array, file.Buff)
-
-					fileObj := js.Global().Get("File").New(
-						[]interface{}{uint8Array},
-						file.Name,
-						map[string]interface{}{"type": file.Type},
-					)
-
-					formdata.Call("append", key, fileObj)
-				},
-			}
+			formdata    = js.Global().Get("FormData").New()
+			useFormdata = false
 		)
-		resp, reqt := internals.ProcessData(body, goHeaders, spSymmetricKey, goFormdata)
-		if reqt == nil {
-			res.Set("statusCode", resp.Status)
-			res.Set("statusMessage", resp.StatusText)
+		response, request := internals.ProcessData(body, spSymmetricKey)
+		if response != nil {
+			res.Set("statusCode", response.Status)
+			res.Set("statusMessage", response.StatusText)
 			return nil
 		}
 
+		switch strings.ToLower(request.Headers["Content-Type"]) {
+		case "application/layer8.buffer+json": // this is used for multipart/form-data
+			useFormdata = true
+			var reqBody map[string]interface{}
+
+			json.Unmarshal(request.Body, &reqBody)
+
+			// clear the body as it will be replaced by the formdata
+			request.Body = nil
+
+			randomBytes := make([]byte, 16)
+			_, err := rand.Read(randomBytes)
+			if err != nil {
+				fmt.Println("error generating random bytes:", err.Error())
+				res.Set("statusCode", 500)
+				res.Set("statusMessage", "Could not generate random bytes: "+err.Error())
+				return nil
+			}
+			boundary := fmt.Sprintf("----Layer8FormBoundary%s", base64.StdEncoding.EncodeToString(randomBytes))
+
+			for k, v := range reqBody {
+				// formdata can have multiple entries with the same key
+				// that is why each key from the interceptor is a slice
+				// of maps containing all the values for that key
+				// hence the O(n^2) complexity (i.e. 2 for loops)
+				for _, val := range v.([]interface{}) {
+					val := val.(map[string]interface{})
+
+					switch val["_type"].(string) {
+					case "File":
+						buff, err := base64.StdEncoding.DecodeString(val["buff"].(string))
+						if err != nil {
+							fmt.Println("error decoding file buffer:", err.Error())
+							res.Set("statusCode", 500)
+							res.Set("statusMessage", "Could not decode file buffer: "+err.Error())
+							return nil
+						}
+
+						uint8Array := js.Global().Get("Uint8Array").New(val["size"].(float64))
+						js.CopyBytesToJS(uint8Array, buff)
+
+						file := js.Global().Get("File").New(
+							[]interface{}{uint8Array},
+							val["name"].(string),
+							map[string]interface{}{
+								"type": val["type"].(string),
+							},
+						)
+						formdata.Call("append", k, file)
+					case "String":
+						formdata.Call("append", k, val["value"].(string))
+					case "Number":
+						formdata.Call("append", k, val["value"].(float64))
+					case "Boolean":
+						formdata.Call("append", k, val["value"].(bool))
+					}
+				}
+			}
+
+			request.Headers["Content-Type"] = "multipart/form-data; boundary=" + boundary
+		default:
+			if contentType, ok := request.Headers["Content-Type"]; !ok || contentType == "" {
+				request.Headers["Content-Type"] = "application/json"
+			}
+		}
+
 		// set the method and headers
-		req.Set("method", reqt.Method)
-		for k, v := range reqt.Headers {
+		req.Set("method", request.Method)
+		for k, v := range request.Headers {
 			headers.Set(k, v)
 		}
 
-		if reqt.Body != nil {
+		if useFormdata {
+			req.Set("body", formdata)
+		} else {
 			var body map[string]interface{}
-			json.Unmarshal(reqt.Body, &body)
+			json.Unmarshal(request.Body, &body)
 
 			req.Set("body", body)
-		} else {
-			req.Set("body", formdata)
 		}
 
 		// continue to next middleware/handler
@@ -181,7 +226,7 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 		if args[0].Type() == js.TypeString {
 			var (
 				mapData map[string]interface{}
-				err = json.Unmarshal([]byte(args[0].String()), &mapData)
+				err     = json.Unmarshal([]byte(args[0].String()), &mapData)
 			)
 			if err != nil {
 				println("error unmarshalling json data:", err.Error())
@@ -190,12 +235,12 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 				res.Call("end", "500 Internal Server Error")
 				return nil
 			}
-			data = gojs.NewValue(mapData)
+			data = gojs.ValueOf(mapData)
 		} else {
-			data = gojs.Unmarshal(args[0])
+			data = marshaller.Unmarshal(args[0])
 		}
 
-		response := internals.PrepareData(gojs.Unmarshal(res), data, spSymmetricKey, MpJWT)
+		response := internals.PrepareData(marshaller.Unmarshal(res), data, spSymmetricKey, MpJWT)
 		res.Set("statusCode", response.Status)
 		res.Set("statusMessage", response.StatusText)
 		res.Call("set", js.ValueOf(MapOfStringsToMapOfInterfaces(response.Headers)))
