@@ -229,13 +229,12 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 				err     = json.Unmarshal([]byte(args[0].String()), &mapData)
 			)
 			if err != nil {
-				println("error unmarshalling json data:", err.Error())
-				res.Set("statusCode", 500)
-				res.Set("statusMessage", "Internal Server Error")
-				res.Call("end", "500 Internal Server Error")
-				return nil
+				// when JSON data cannot be unmarshalled, we'll just send the string as is
+				// this is useful for sending plain text responses
+				data = gojs.ValueOf(args[0].String())
+			} else {
+				data = gojs.ValueOf(mapData)
 			}
-			data = gojs.ValueOf(mapData)
 		} else {
 			data = marshaller.Unmarshal(args[0])
 		}
