@@ -18,7 +18,7 @@ import (
 	utils "github.com/globe-and-citizen/layer8-utils"
 )
 
-const VERSION = "1.0.3"
+const VERSION = "1.0.26"
 
 func init() {
 	var err error
@@ -120,10 +120,7 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 	}))
 
 	req.Call("on", "end", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
-		var (
-			formdata    = js.Global().Get("FormData").New()
-			useFormdata = false
-		)
+		// Occur under all circumstances:
 		response, request := internals.ProcessData(body, spSymmetricKey)
 		if response != nil {
 			res.Set("statusCode", response.Status)
@@ -131,9 +128,15 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 			return nil
 		}
 
+		req.Set("method", request.Method)
+		for k, v := range request.Headers {
+			headers.Set(k, v)
+		}
+
+		// Primary Decisiotn Point
 		switch strings.ToLower(request.Headers["Content-Type"]) {
 		case "application/layer8.buffer+json": // this is used for multipart/form-data
-			useFormdata = true
+
 			var reqBody map[string]interface{}
 
 			json.Unmarshal(request.Body, &reqBody)
@@ -141,71 +144,29 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 			// clear the body as it will be replaced by the formdata
 			request.Body = nil
 
-			randomBytes := make([]byte, 16)
-			_, err := rand.Read(randomBytes)
+			// pass in reqBody and get out a formData
+			formdata, err := convertBodyToFormdata(reqBody)
+			if err != nil {
+				fmt.Println("error decoding file buffer:", err.Error())
+				res.Set("statusCode", 500)
+				res.Set("statusMessage", "Could not decode file buffer: "+err.Error())
+			}
+
+			boundary, err := getArbitraryBoundary()
 			if err != nil {
 				fmt.Println("error generating random bytes:", err.Error())
 				res.Set("statusCode", 500)
 				res.Set("statusMessage", "Could not generate random bytes: "+err.Error())
-				return nil
-			}
-			boundary := fmt.Sprintf("----Layer8FormBoundary%s", base64.StdEncoding.EncodeToString(randomBytes))
-
-			for k, v := range reqBody {
-				// formdata can have multiple entries with the same key
-				// that is why each key from the interceptor is a slice
-				// of maps containing all the values for that key
-				// hence the O(n^2) complexity (i.e. 2 for loops)
-				for _, val := range v.([]interface{}) {
-					val := val.(map[string]interface{})
-
-					switch val["_type"].(string) {
-					case "File":
-						buff, err := base64.StdEncoding.DecodeString(val["buff"].(string))
-						if err != nil {
-							fmt.Println("error decoding file buffer:", err.Error())
-							res.Set("statusCode", 500)
-							res.Set("statusMessage", "Could not decode file buffer: "+err.Error())
-							return nil
-						}
-
-						uint8Array := js.Global().Get("Uint8Array").New(val["size"].(float64))
-						js.CopyBytesToJS(uint8Array, buff)
-
-						file := js.Global().Get("File").New(
-							[]interface{}{uint8Array},
-							val["name"].(string),
-							map[string]interface{}{
-								"type": val["type"].(string),
-							},
-						)
-						formdata.Call("append", k, file)
-					case "String":
-						formdata.Call("append", k, val["value"].(string))
-					case "Number":
-						formdata.Call("append", k, val["value"].(float64))
-					case "Boolean":
-						formdata.Call("append", k, val["value"].(bool))
-					}
-				}
 			}
 
 			request.Headers["Content-Type"] = "multipart/form-data; boundary=" + boundary
+
+			req.Set("body", formdata)
+
 		default:
 			if contentType, ok := request.Headers["Content-Type"]; !ok || contentType == "" {
 				request.Headers["Content-Type"] = "application/json"
 			}
-		}
-
-		// set the method and headers
-		req.Set("method", request.Method)
-		for k, v := range request.Headers {
-			headers.Set(k, v)
-		}
-
-		if useFormdata {
-			req.Set("body", formdata)
-		} else {
 			var body map[string]interface{}
 			json.Unmarshal(request.Body, &body)
 
@@ -534,4 +495,56 @@ func MapOfStringsToMapOfInterfaces(m map[string]string) map[string]interface{} {
 		mi[k] = v
 	}
 	return mi
+}
+
+// ADDED FUNCTIONS
+
+func convertBodyToFormdata(reqBody map[string]interface{}) (js.Value, error) {
+	formdata := js.Global().Get("FormData").New()
+
+	for k, v := range reqBody {
+		// formdata can have multiple entries with the same key
+		// that is why each key from the interceptor is a slice
+		// of maps containing all the values for that key
+		// hence the O(n^2) complexity (i.e. 2 for loops)
+		for _, val := range v.([]interface{}) {
+			val := val.(map[string]interface{})
+
+			switch val["_type"].(string) {
+			case "File":
+				buff, err := base64.StdEncoding.DecodeString(val["buff"].(string))
+				if err != nil {
+					return js.ValueOf(nil), fmt.Errorf("Could not decode file buffer: " + err.Error())
+				}
+
+				uint8Array := js.Global().Get("Uint8Array").New(val["size"].(float64))
+				js.CopyBytesToJS(uint8Array, buff)
+
+				file := js.Global().Get("File").New(
+					[]interface{}{uint8Array},
+					val["name"].(string),
+					map[string]interface{}{
+						"type": val["type"].(string),
+					},
+				)
+				formdata.Call("append", k, file)
+			case "String":
+				formdata.Call("append", k, val["value"].(string))
+			case "Number":
+				formdata.Call("append", k, val["value"].(float64))
+			case "Boolean":
+				formdata.Call("append", k, val["value"].(bool))
+			}
+		}
+	}
+	return formdata, nil
+}
+
+func getArbitraryBoundary() (string, error) {
+	randomBytes := make([]byte, 16)
+	_, err := rand.Read(randomBytes)
+	if err != nil {
+		return "", fmt.Errorf("unable to generate random bytes")
+	}
+	return fmt.Sprintf("----Layer8FormBoundary%s", base64.StdEncoding.EncodeToString(randomBytes)), nil
 }
