@@ -19,7 +19,7 @@ func Unmarshal(v js.Value) *gojs.Value {
 	m := &gojs.Value{
 		Type:        gojs.TypeObject,
 		Constructor: v.Get("constructor").Get("name").String(),
-		Value:       make(map[string]interface{}),
+		Value:       make(map[string]*gojs.Value),
 	}
 
 	for i := 0; i < keys.Length(); i++ {
@@ -28,19 +28,19 @@ func Unmarshal(v js.Value) *gojs.Value {
 
 		switch val.Type() {
 		case js.TypeNumber:
-			m.Value.(map[string]interface{})[key] = &gojs.Value{
+			m.Value.(map[string]*gojs.Value)[key] = &gojs.Value{
 				Type:        gojs.TypeNumber,
 				Constructor: "Number",
 				Value:       val.Float(),
 			}
 		case js.TypeBoolean:
-			m.Value.(map[string]interface{})[key] = &gojs.Value{
+			m.Value.(map[string]*gojs.Value)[key] = &gojs.Value{
 				Type:        gojs.TypeBoolean,
 				Constructor: "Boolean",
 				Value:       val.Bool(),
 			}
 		case js.TypeString:
-			m.Value.(map[string]interface{})[key] = &gojs.Value{
+			m.Value.(map[string]*gojs.Value)[key] = &gojs.Value{
 				Type:        gojs.TypeString,
 				Constructor: "String",
 				Value:       val.String(),
@@ -52,16 +52,16 @@ func Unmarshal(v js.Value) *gojs.Value {
 			}
 
 			if val.Get("constructor").Get("name").String() == "Array" {
-				m.Value.(map[string]interface{})[key] = &gojs.Value{
+				m.Value.(map[string]*gojs.Value)[key] = &gojs.Value{
 					Type:        gojs.TypeArray,
 					Constructor: val.Get("constructor").Get("name").String(),
 					Value:       parseObjectToSlice(val),
 				}
 			} else if val.Get("constructor").Get("name").String() == "Object" {
-				m.Value.(map[string]interface{})[key] = Unmarshal(val)
+				m.Value.(map[string]*gojs.Value)[key] = Unmarshal(val)
 			}
 		default:
-			m.Value.(map[string]interface{})[key] = &gojs.Value{
+			m.Value.(map[string]*gojs.Value)[key] = &gojs.Value{
 				Type:        gojs.TypeNull,
 				Constructor: "Null",
 				Value:       nil,

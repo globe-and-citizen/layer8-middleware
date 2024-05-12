@@ -82,7 +82,37 @@ func TestInitializeECDH(t *testing.T) {
 				}),
 			},
 			wantErr:       true,
-			wantErrString: "Failure to decode userPubJWK:",
+			wantErrString: "failure to decode userPubJWK:",
+		},
+		{
+			name: "init_with_no_headers",
+			args: args{
+				headers: js.ValueOf(map[string]interface{}{}),
+			},
+			wantErr:       true,
+			wantErrString: "missing required headers:",
+		},
+		{
+			name: "init_with_missing_headers",
+			args: args{
+				headers: js.ValueOf(map[string]interface{}{
+					"x-client-uuid": uuid.New().String(),
+				}),
+			},
+			wantErr:       true,
+			wantErrString: "missing required headers:",
+		},
+		{
+			name: "init_with_invalid_header_types",
+			args: args{
+				headers: js.ValueOf(map[string]interface{}{
+					"x-ecdh-init":   123,
+					"x-client-uuid": 123,
+					"mp-jwt":        123,
+				}),
+			},
+			wantErr:       true,
+			wantErrString: "invalid headers:",
 		},
 	}
 
