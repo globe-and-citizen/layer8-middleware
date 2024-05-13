@@ -58,15 +58,13 @@ func PrepareData(res, data *js.Value, symmKey *utils.JWK, jwt string) *utils.Res
 	}
 
 	if res.Get("headers") == nil {
-		res.Set("headers", map[string]interface{}{})
+		res.Set("headers", map[string]*js.Value{})
 	}
-	for k, v := range res.Get("headers").(map[string]interface{}) {
-		switch val := v.(type) {
-		case string:
-			jres.Headers[k] = val
-		case *js.Value:
-			jres.Headers[k] = val.String()
+	for k, v := range res.Get("headers").(map[string]*js.Value) {
+		if v.Type != js.TypeString {
+			continue
 		}
+		jres.Headers[k] = v.Value.(string)
 	}
 
 	b, err = jres.ToJSON()

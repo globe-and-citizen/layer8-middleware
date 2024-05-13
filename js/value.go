@@ -146,6 +146,12 @@ func (v *Value) Set(key string, value interface{}) {
 			Constructor: "Array",
 			Value:       val,
 		}
+	case map[string]*Value:
+		v.Value.(map[string]*Value)[key] = &Value{
+			Type:        TypeObject,
+			Constructor: "Object",
+			Value:       val,
+		}
 	default:
 		v.Value.(map[string]*Value)[key] = &Value{
 			Type:        TypeNull,

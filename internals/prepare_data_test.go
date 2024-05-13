@@ -85,6 +85,36 @@ func TestPrepareData(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "prepare_data_with_nil_headers",
+			data: js.ValueOf("hello world"),
+			res: js.ValueOf(map[string]interface{}{
+				"statusCode": float64(200),
+				"statusText": "OK",
+				"headers":    nil,
+			}),
+			want: &utils.Response{
+				Body:       []byte("hello world"),
+				Status:     200,
+				StatusText: "OK",
+				Headers:    map[string]string{},
+			},
+		},
+		{
+			name: "prepare_data_with_empty_headers",
+			data: js.ValueOf("hello world"),
+			res: js.ValueOf(map[string]interface{}{
+				"statusCode": float64(200),
+				"statusText": "OK",
+				"headers":    map[string]interface{}{},
+			}),
+			want: &utils.Response{
+				Body:       []byte("hello world"),
+				Status:     200,
+				StatusText: "OK",
+				Headers:    map[string]string{},
+			},
+		},
 	}
 
 	for _, tt := range tests {
