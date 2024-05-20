@@ -127,6 +127,42 @@ func doECDHWithClient(request, response js.Value) {
 	return
 }
 
+func refreshJWTs(request, response js.Value) {
+	fmt.Println("Refreshing JWT")
+	headers := request.Get("headers")
+	fmt.Println("headers: ", headers)
+
+	clientUUID := headers.Get("x-client-uuid").String()
+
+	MpJWT := headers.Get("mp-jwt").String()
+	fmt.Println("MpJWT at SP BE (Middleware): ", MpJWT)
+
+	UUIDMapOfJWTs = append(UUIDMapOfJWTs, map[string]string{clientUUID: MpJWT})
+
+	response.Set("send", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		// encrypt response
+		jres := utils.Response{}
+		// Send an empty response
+		jres.Body = []byte("")
+		jres.Status = 200
+		jres.StatusText = "JWT Refreshed Successfully!"
+
+		// send response
+		response.Set("statusCode", jres.Status)
+		response.Set("statusMessage", jres.StatusText)
+
+		response.Call("end", "")
+		return nil
+	}))
+
+	// Send the response back to the user.
+	response.Call("setHeader", "mp-jwt", MpJWT)
+	result := response.Call("hasHeader", "mp-JWT")
+	fmt.Println("result: ", result)
+	response.Call("send")
+	return
+}
+
 // WASM Middleware Version 2 Does not depend on the Express Body Parser//
 func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 	// Get the request and response objects and the next function
@@ -146,6 +182,12 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 	isECDHInit := headers.Get("x-ecdh-init").String()
 	if isECDHInit != "<undefined>" {
 		doECDHWithClient(req, res)
+		return nil
+	}
+
+	isJWTRefresh := headers.Get("x-jwt-refresh").String()
+	if isJWTRefresh != "<undefined>" {
+		refreshJWTs(req, res)
 		return nil
 	}
 
@@ -185,6 +227,8 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 		doECDHWithClient(req, res)
 		return nil
 	}
+
+	fmt.Println("mpJWT at SP BE (Middleware): ", MpJWT)
 
 	var body string
 
