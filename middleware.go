@@ -128,16 +128,21 @@ func doECDHWithClient(request, response js.Value) {
 }
 
 func refreshJWTs(request, response js.Value) {
-	fmt.Println("Refreshing JWT")
+	fmt.Println("***Refreshing JWT***")
 	headers := request.Get("headers")
-	fmt.Println("headers: ", headers)
+	// fmt.Println("headers: ", headers)
 
 	clientUUID := headers.Get("x-client-uuid").String()
+	fmt.Println("clientUUID: ", clientUUID)
 
 	MpJWT := headers.Get("mp-jwt").String()
 	fmt.Println("MpJWT at SP BE (Middleware): ", MpJWT)
 
-	UUIDMapOfJWTs = append(UUIDMapOfJWTs, map[string]string{clientUUID: MpJWT})
+	for _, v := range UUIDMapOfJWTs {
+		if v[clientUUID] != "" {
+			v[clientUUID] = MpJWT
+		}
+	}
 
 	response.Set("send", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		// encrypt response
@@ -157,8 +162,8 @@ func refreshJWTs(request, response js.Value) {
 
 	// Send the response back to the user.
 	response.Call("setHeader", "mp-jwt", MpJWT)
-	result := response.Call("hasHeader", "mp-JWT")
-	fmt.Println("result: ", result)
+	// result := response.Call("hasHeader", "mp-JWT")
+	// fmt.Println("result: ", result)
 	response.Call("send")
 	return
 }
@@ -185,7 +190,7 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 		return nil
 	}
 
-	isJWTRefresh := headers.Get("x-jwt-refresh").String()
+	isJWTRefresh := headers.Get("x-refresh-jwt").String()
 	if isJWTRefresh != "<undefined>" {
 		refreshJWTs(req, res)
 		return nil
