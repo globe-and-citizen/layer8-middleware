@@ -1,11 +1,7 @@
----
-name: Generic PR Template
-about: A test suite of simple manual tests to ensure functionality is preserved.
-title: ''
-labels: ''
-assignees: ''
+## Description
 
----
+
+## A test suite of simple manual tests to ensure functionality is preserved.
 
 SECTION 1: WEVE GOT POEMS (http://localhost:5173/)
 [ ] Log in with 'tester' / '1234'
