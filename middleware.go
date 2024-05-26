@@ -15,7 +15,7 @@ import (
 	utils "github.com/globe-and-citizen/layer8-utils"
 )
 
-const VERSION = "1.0.3"
+const VERSION = "1.0.4"
 
 var (
 	privKey_ECDH  *utils.JWK
@@ -134,6 +134,10 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 	res := args[1]
 	next := args[2]
 
+	// Get the url from the request // For debugging
+	// url := req.Get("url").String()
+	// fmt.Println("url check: ", url) 
+
 	headers := req.Get("headers")
 
 	// proceed to next middleware/handler request is not a layer8 request
@@ -214,6 +218,8 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 			return nil
 		}
 
+		// fmt.Println("*********Decrypted data at the middleware*********: ", string(b)) // For debugging
+
 		// parse the decrypted data into a request object
 		jreq, err := utils.FromJSONRequest(b)
 		if err != nil {
@@ -287,6 +293,11 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 			var reqBody map[string]interface{}
 			json.Unmarshal(jreq.Body, &reqBody)
 
+			if reqBody["url_path"] != nil {
+				fmt.Println("*********reqBody[url_path]*********: ", reqBody["url_path"])
+				req.Set("url", reqBody["url_path"])
+			}
+
 			req.Set("body", reqBody)
 			headers.Set("Content-Type", "application/json")
 		}
@@ -299,7 +310,6 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 			}
 			headers.Set(k, v)
 		}
-
 		// continue to next middleware/handler
 		next.Invoke()
 		return nil
@@ -312,7 +322,6 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 			b    []byte
 			err  error
 		)
-
 		if data.Type() == js.TypeObject {
 			switch data.Get("constructor").Get("name").String() {
 			case "Object":
