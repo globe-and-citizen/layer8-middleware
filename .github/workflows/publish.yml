@@ -1,5 +1,6 @@
 # This Action Pubhlishes to NPM Automatically.
 on:
+  workflow_dispatch:
   push: # event 
     branches: main # configuration or Activity types?
 
