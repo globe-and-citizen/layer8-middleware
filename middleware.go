@@ -296,6 +296,12 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 			if reqBody["url_path"] != nil {
 				fmt.Println("*********reqBody[url_path]*********: ", reqBody["url_path"])
 				req.Set("url", reqBody["url_path"])
+				
+				// Also set the query parameters
+				req.Set("query", "id=1") // Works
+				req.Set("params", "id=1") // Doesn't work
+				fmt.Println("*********req[url]*********: ", req.Get("url"))
+				// func layer8_path_queryparam_parser(reqBody["url_path"]) map[string]string
 			}
 
 			req.Set("body", reqBody)
