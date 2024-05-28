@@ -178,8 +178,8 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 		return nil
 	}))
 
-	// OVERWRITE THE SEND FUNCTION
-	res.Set("send", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+	// OVERWRITE ALL RESPONSE FUNCTIONS
+	respond := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		// we'll need to convert some of the args to a map
 		// this is for instances where the user wants to send a json response
 		// and the args are stringified json
@@ -208,8 +208,10 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 			"data": base64.URLEncoding.EncodeToString(response.Body),
 		})))
 		return nil
-	}))
+	})
 
+	res.Set("send", respond)
+	res.Set("json", respond)
 	return nil
 }
 
