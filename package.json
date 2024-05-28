@@ -31,5 +31,8 @@
     "index.js",
     "./dist/middleware.json",
     "./dist/wasm_exec.js"
-  ]
+  ],
+  "dependencies": {
+    "redis": "^4.6.14"
+  }
 }

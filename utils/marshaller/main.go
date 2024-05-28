@@ -3,7 +3,7 @@ package marshaller
 import (
 	"syscall/js"
 
-	gojs "globe-and-citizen/layer8/middleware/js"
+	gojs "globe-and-citizen/layer8/middleware/utils/value"
 )
 
 // Unmarshal unmarshals a `syscall/js.Value` into the internal `Value` type.

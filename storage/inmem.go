@@ -4,29 +4,22 @@ import (
 	utils "github.com/globe-and-citizen/layer8-utils"
 )
 
-type (
-	ecdh struct {
-		pri *utils.JWK
-		pub *utils.JWK
-	}
+type inMemStorage struct {
 	keys []map[string]*utils.JWK
 	jwts []map[string]string
-)
-
-func (e *ecdh) GetPrivateKey() *utils.JWK {
-	return e.pri
 }
 
-func (e *ecdh) GetPublicKey() *utils.JWK {
-	return e.pub
+func (s *inMemStorage) WithOptions(options *StorageOptions) {
+	// no-op
 }
 
-func (k *keys) Add(key string, value *utils.JWK) {
-	*k = append(*k, map[string]*utils.JWK{key: value})
+func (s *inMemStorage) AddKey(key string, value *utils.JWK) error {
+	s.keys = append(s.keys, map[string]*utils.JWK{key: value})
+	return nil
 }
 
-func (k *keys) Get(key string) *utils.JWK {
-	for _, v := range *k {
+func (s *inMemStorage) GetKey(key string) *utils.JWK {
+	for _, v := range s.keys {
 		if jwk, ok := v[key]; ok {
 			return jwk
 		}
@@ -34,12 +27,13 @@ func (k *keys) Get(key string) *utils.JWK {
 	return nil
 }
 
-func (j *jwts) Add(key string, value string) {
-	*j = append(*j, map[string]string{key: value})
+func (s *inMemStorage) AddJWT(key string, value string) error {
+	s.jwts = append(s.jwts, map[string]string{key: value})
+	return nil
 }
 
-func (j *jwts) Get(key string) string {
-	for _, v := range *j {
+func (s *inMemStorage) GetJWT(key string) string {
+	for _, v := range s.jwts {
 		if jwt, ok := v[key]; ok {
 			return jwt
 		}
@@ -47,28 +41,14 @@ func (j *jwts) Get(key string) string {
 	return ""
 }
 
-type inMemStorage struct {
-	ECDH *ecdh
-	Keys keys
-	JWTs jwts
-}
-
 var (
 	// inMemStorageInstance is the instance of the in-memory storage
 	inMemStorageInstance *inMemStorage
 )
 
-func InitInMemStorage(pri, pub *utils.JWK) {
+func initInMemStorage() {
 	inMemStorageInstance = &inMemStorage{
-		ECDH: &ecdh{
-			pri: pri,
-			pub: pub,
-		},
-		Keys: []map[string]*utils.JWK{},
-		JWTs: []map[string]string{},
+		keys: []map[string]*utils.JWK{},
+		jwts: []map[string]string{},
 	}
-}
-
-func GetInMemStorage() *inMemStorage {
-	return inMemStorageInstance
 }

@@ -1,4 +1,4 @@
-package js
+package value
 
 type (
 	Type  int
