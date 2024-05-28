@@ -72,22 +72,38 @@ func Unmarshal(v js.Value) *gojs.Value {
 	return m
 }
 
-func parseObjectToSlice(obj js.Value) []interface{} {
-	var s []interface{}
+func parseObjectToSlice(obj js.Value) []*gojs.Value {
+	var s []*gojs.Value
 
 	for i := 0; i < obj.Length(); i++ {
 		val := obj.Index(i)
 
 		switch val.Type() {
 		case js.TypeNumber:
-			s = append(s, val.Float())
+			s = append(s, &gojs.Value{
+				Type:        gojs.TypeNumber,
+				Constructor: "Number",
+				Value:       val.Float(),
+			})
 		case js.TypeBoolean:
-			s = append(s, val.Bool())
+			s = append(s, &gojs.Value{
+				Type:        gojs.TypeBoolean,
+				Constructor: "Boolean",
+				Value:       val.Bool(),
+			})
 		case js.TypeString:
-			s = append(s, val.String())
+			s = append(s, &gojs.Value{
+				Type:        gojs.TypeString,
+				Constructor: "String",
+				Value:       val.String(),
+			})
 		case js.TypeObject:
 			if val.Get("constructor").Get("name").String() == "Array" {
-				s = append(s, parseObjectToSlice(val))
+				s = append(s, &gojs.Value{
+					Type:        gojs.TypeArray,
+					Constructor: val.Get("constructor").Get("name").String(),
+					Value:       parseObjectToSlice(val),
+				})
 				continue
 			}
 			s = append(s, Unmarshal(val))
