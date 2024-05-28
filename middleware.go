@@ -13,6 +13,8 @@ import (
 	"syscall/js"
 
 	utils "github.com/globe-and-citizen/layer8-utils"
+
+	localUtils "globe-and-citizen/layer8/middleware/utils"
 )
 
 const VERSION = "1.0.4"
@@ -136,7 +138,7 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 
 	// Get the url from the request // For debugging
 	// url := req.Get("url").String()
-	// fmt.Println("url check: ", url) 
+	// fmt.Println("url check: ", url)
 
 	headers := req.Get("headers")
 
@@ -294,14 +296,16 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 			json.Unmarshal(jreq.Body, &reqBody)
 
 			if reqBody["url_path"] != nil {
-				fmt.Println("*********reqBody[url_path]*********: ", reqBody["url_path"])
-				req.Set("url", reqBody["url_path"])
-				
-				// Also set the query parameters
-				req.Set("query", "id=1") // Works
-				req.Set("params", "id=1") // Doesn't work
-				fmt.Println("*********req[url]*********: ", req.Get("url"))
-				// func layer8_path_queryparam_parser(reqBody["url_path"]) map[string]string
+				path, queryParams := localUtils.ParseURLPath(reqBody["url_path"].(string))
+
+				req.Set("url", path)
+
+				if queryParams != "" {
+					queryParamsMap := localUtils.ParseQueryParams(queryParams)
+					for k, v := range queryParamsMap {
+						req.Get("query").Set(k, v)
+					}
+				}
 			}
 
 			req.Set("body", reqBody)
