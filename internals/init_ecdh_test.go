@@ -1,7 +1,6 @@
 package internals
 
 import (
-	"globe-and-citizen/layer8/middleware/js"
 	"globe-and-citizen/layer8/middleware/storage"
 	"strings"
 	"testing"
@@ -9,6 +8,7 @@ import (
 	utilities "github.com/globe-and-citizen/layer8-utils"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	js "globe-and-citizen/layer8/middleware/utils/value"
 )
 
 func TestInitializeECDH(t *testing.T) {
@@ -17,8 +17,8 @@ func TestInitializeECDH(t *testing.T) {
 	assert.NotNil(t, serverPri)
 	assert.NotNil(t, serverPub)
 
-	storage.InitInMemStorage(serverPri, serverPub)
-	db := storage.GetInMemStorage()
+	storage.InitStorage(serverPri, serverPub)
+	db := storage.GetStorage(storage.STORAGE_INMEM)
 	assert.NotNil(t, db)
 
 	b64ServerPub, err := serverPub.ExportAsBase64()
@@ -118,7 +118,7 @@ func TestInitializeECDH(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotShared, gotPub, gotMpJWT, err := InitializeECDH(tt.args.headers)
+			gotShared, gotPub, gotMpJWT, err := InitializeECDH(tt.args.headers, db)
 			if tt.wantErr {
 				assert.NotNil(t, err)
 				assert.Subset(t, strings.Split(err.Error(), " "), strings.Split(tt.wantErrString, " "))
@@ -128,7 +128,7 @@ func TestInitializeECDH(t *testing.T) {
 				assert.Equal(t, tt.wantPub, gotPub)
 				assert.Equal(t, tt.wantMpJWT, gotMpJWT)
 
-				savedShared := db.Keys.Get(tt.args.headers.Get("x-client-uuid").(string))
+				savedShared := db.GetKey(tt.args.headers.Get("x-client-uuid").(string))
 				assert.NotNil(t, savedShared)
 
 				b64Shared, err := savedShared.ExportAsBase64()
@@ -136,7 +136,7 @@ func TestInitializeECDH(t *testing.T) {
 				assert.NotEmpty(t, b64Shared)
 				assert.Equal(t, b64Shared, gotShared)
 
-				savedMpJWT := db.JWTs.Get(tt.args.headers.Get("x-client-uuid").(string))
+				savedMpJWT := db.GetJWT(tt.args.headers.Get("x-client-uuid").(string))
 				assert.NotEmpty(t, savedMpJWT)
 				assert.Equal(t, savedMpJWT, gotMpJWT)
 			}

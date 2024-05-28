@@ -1,4 +1,4 @@
-package js
+package value
 
 type (
 	// FormData is a struct that represents a FormData object in JavaScript

@@ -11,14 +11,19 @@ import (
 	"syscall/js"
 
 	"globe-and-citizen/layer8/middleware/internals"
-	gojs "globe-and-citizen/layer8/middleware/js"
-	"globe-and-citizen/layer8/middleware/marshaller"
 	"globe-and-citizen/layer8/middleware/storage"
+	"globe-and-citizen/layer8/middleware/utils/marshaller"
+	"globe-and-citizen/layer8/middleware/utils/parser"
+	gojs "globe-and-citizen/layer8/middleware/utils/value"
 
 	utils "github.com/globe-and-citizen/layer8-utils"
 )
 
 const VERSION = "1.0.26"
+
+var (
+	StorageType = storage.STORAGE_INMEM
+)
 
 func init() {
 	var err error
@@ -28,17 +33,56 @@ func init() {
 		panic(err)
 	}
 
-	storage.InitInMemStorage(pri, pub)
+	storage.InitStorage(pri, pub)
 }
 
 func main() {
 	c := make(chan struct{})
 	fmt.Printf("L8 WASM Middleware version %s loaded.\n\n", VERSION)
+	js.Global().Set("StorageOptions", js.FuncOf(StorageOptions))
 	js.Global().Set("WASMMiddleware", js.FuncOf(WASMMiddleware_v2))
 	js.Global().Set("ServeStatic", js.FuncOf(static))
 	js.Global().Set("ProcessMultipart", js.FuncOf(multipart))
 	js.Global().Set("TestWASM", js.FuncOf(TestWASM))
 	<-c
+}
+
+func StorageOptions(this js.Value, args []js.Value) interface{} {
+	var (
+		next           = args[0]
+		storageOptions = args[1]
+		options        = map[string]interface{}{}
+	)
+
+	if storageOptions.String() != "<undefined>" {
+		var redis *parser.Redis
+		if storageOptions.Get("client").String() != "<undefined>" {
+			redis = parser.NewRedis(storageOptions.Get("client"))
+		}
+
+		// convert the storageOptions to a map
+		storageOptions := marshaller.Unmarshal(storageOptions)
+		options = storageOptions.GetValue().(map[string]interface{})
+
+		// check if the client is using redis and set the options
+		if client, ok := options["_client"].(float64); ok && int(client) == storage.STORAGE_REDIS {
+			StorageType = storage.STORAGE_REDIS
+			var password string
+			if pass, ok := options["password"].(string); ok {
+				password = pass
+			}
+			storage.WithOptions(StorageType, &storage.StorageOptions{
+				Host:     options["host"].(string),
+				Port:     int(options["port"].(float64)),
+				Password: password,
+				DB:       int(options["db"].(float64)),
+				Client:   redis,
+			})
+		}
+	}
+
+	next.Invoke()
+	return nil
 }
 
 // WASM Middleware Version 2 Does not depend on the Express Body Parser//
@@ -50,7 +94,7 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 		next      = args[2]
 		headers   = req.Get("headers")
 		goHeaders = marshaller.Unmarshal(headers)
-		db        = storage.GetInMemStorage()
+		db        = storage.GetStorage(StorageType)
 	)
 
 	// proceed to next middleware/handler request is not a layer8 request
@@ -60,7 +104,7 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 	}
 
 	initECDH := func() interface{} {
-		secret, pub, mpjwt, err := internals.InitializeECDH(goHeaders)
+		secret, pub, mpjwt, err := internals.InitializeECDH(goHeaders, db)
 		if err != nil {
 			println(err.Error())
 			res.Set("statusCode", 500)
@@ -91,24 +135,14 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 	}
 
 	// Get the symmetric key for this client
-	var spSymmetricKey *utils.JWK
-	for _, v := range db.Keys {
-		if v[clientUUID] != nil {
-			spSymmetricKey = v[clientUUID]
-		}
-	}
+	spSymmetricKey := db.GetKey(clientUUID)
 	if spSymmetricKey == nil {
 		return initECDH()
 	}
 
 	// Get the JWT for this client
-	var MpJWT string
-	for _, v := range db.JWTs {
-		if v[clientUUID] != "" {
-			MpJWT = v[clientUUID]
-		}
-	}
-	if MpJWT == "" {
+	mpJWT := db.GetJWT(clientUUID)
+	if mpJWT == "" {
 		return initECDH()
 	}
 
@@ -200,7 +234,7 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 			data = marshaller.Unmarshal(args[0])
 		}
 
-		response := internals.PrepareData(marshaller.Unmarshal(res), data, spSymmetricKey, MpJWT)
+		response := internals.PrepareData(marshaller.Unmarshal(res), data, spSymmetricKey, mpJWT)
 		res.Set("statusCode", response.Status)
 		res.Set("statusMessage", response.StatusText)
 		res.Call("set", js.ValueOf(MapOfStringsToMapOfInterfaces(response.Headers)))
@@ -220,7 +254,7 @@ func static(this js.Value, args []js.Value) interface{} {
 		dir     = args[2].String()
 		fs      = args[3]
 		headers = req.Get("headers")
-		db      = storage.GetInMemStorage()
+		db      = storage.GetStorage(StorageType)
 
 		// returns the default EncryptedImageData
 		returnEncryptedImage = func() interface{} {
@@ -269,19 +303,12 @@ func static(this js.Value, args []js.Value) interface{} {
 		return returnEncryptedImage()
 	}
 
-	var mpJWT string
-	for _, v := range db.JWTs {
-		if v[clientUUID] != "" {
-			mpJWT = v[clientUUID]
-		}
+	mpJWT := db.GetJWT(clientUUID)
+	if mpJWT == "" {
+		return returnEncryptedImage()
 	}
 
-	var sym *utils.JWK
-	for _, v := range db.Keys {
-		if v[clientUUID] != nil {
-			sym = v[clientUUID]
-		}
-	}
+	sym := db.GetKey(clientUUID)
 	if sym == nil {
 		return returnEncryptedImage()
 	}

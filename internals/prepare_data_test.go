@@ -1,11 +1,11 @@
 package internals
 
 import (
-	"globe-and-citizen/layer8/middleware/js"
 	"testing"
 
 	utils "github.com/globe-and-citizen/layer8-utils"
 	"github.com/stretchr/testify/assert"
+	js "globe-and-citizen/layer8/middleware/utils/value"
 )
 
 func TestPrepareData(t *testing.T) {

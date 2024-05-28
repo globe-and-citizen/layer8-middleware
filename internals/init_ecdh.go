@@ -4,8 +4,8 @@ import (
 	"errors"
 	"strings"
 
-	"globe-and-citizen/layer8/middleware/js"
 	"globe-and-citizen/layer8/middleware/storage"
+	js "globe-and-citizen/layer8/middleware/utils/value"
 
 	utils "github.com/globe-and-citizen/layer8-utils"
 )
@@ -20,9 +20,7 @@ import (
 //   - pub: the server public key
 //   - mpJWT: the JWT
 //   - error: an error if the function fails
-func InitializeECDH(headers *js.Value) (string, string, string, error) {
-	db := storage.GetInMemStorage()
-
+func InitializeECDH(headers *js.Value, db storage.Storage) (string, string, string, error) {
 	// validation
 	required := map[string]js.Type{
 		"x-ecdh-init":   js.TypeString,
@@ -56,24 +54,24 @@ func InitializeECDH(headers *js.Value) (string, string, string, error) {
 
 	clientUUID := headers.Get("x-client-uuid").(string)
 
-	ss, err := db.ECDH.GetPrivateKey().GetECDHSharedSecret(userPubJWK)
+	ss, err := storage.ECDH.GetPrivateKey().GetECDHSharedSecret(userPubJWK)
 	if err != nil {
 		return "", "", "", errors.New("unable to get ECDH shared secret: " + err.Error())
 	}
-	db.Keys.Add(clientUUID, ss)
+	db.AddKey(clientUUID, ss)
 
 	sharedSecret, err := ss.ExportAsBase64()
 	if err != nil {
 		return "", "", "", errors.New("unable to export shared secret as base64: " + err.Error())
 	}
 
-	pub, err := db.ECDH.GetPublicKey().ExportAsBase64()
+	pub, err := storage.ECDH.GetPublicKey().ExportAsBase64()
 	if err != nil {
 		return "", "", "", errors.New("unable to export public key as base64: " + err.Error())
 	}
 
 	mpJWT := headers.Get("mp-jwt").(string)
-	db.JWTs.Add(clientUUID, mpJWT)
+	db.AddJWT(clientUUID, mpJWT)
 
 	return sharedSecret, pub, mpJWT, nil
 }

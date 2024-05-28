@@ -4,9 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"globe-and-citizen/layer8/middleware/js"
-
 	utils "github.com/globe-and-citizen/layer8-utils"
+	js "globe-and-citizen/layer8/middleware/utils/value"
 )
 
 func PrepareData(res, data *js.Value, symmKey *utils.JWK, jwt string) *utils.Response {
