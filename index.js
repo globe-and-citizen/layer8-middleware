@@ -6,10 +6,10 @@ const redis = require("redis")
 globalThis.crypto = crypto;
 
 // STEP 2: CREATE THE GO IMPORT OBJECT
-require('./wasm_exec.js');
+require('./dist/wasm_exec.js');
 
 // STEP 3: IMPORT THE MIDDLEWARE BINARY
-const wasmBin = require("./middleware.json");
+const wasmBin = require("./dist/middleware.json");
 
 // STEP 4: DECLARE NECESSARY UTILITY FUNCTIONS
 function decode(encoded) {
