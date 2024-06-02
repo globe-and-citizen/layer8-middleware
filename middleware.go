@@ -13,8 +13,6 @@ import (
 	"syscall/js"
 
 	utils "github.com/globe-and-citizen/layer8-utils"
-
-	localUtils "globe-and-citizen/layer8/middleware/utils"
 )
 
 const VERSION = "1.0.4"
@@ -296,12 +294,12 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 			json.Unmarshal(jreq.Body, &reqBody)
 
 			if reqBody["url_path"] != nil {
-				path, queryParams := localUtils.ParseURLPath(reqBody["url_path"].(string))
+				path, queryParams := utils.ParseURLPath(reqBody["url_path"].(string))
 
 				req.Set("url", path)
 
 				if queryParams != "" {
-					queryParamsMap := localUtils.ParseQueryParams(queryParams)
+					queryParamsMap := utils.ParseQueryParams(queryParams)
 					for k, v := range queryParamsMap {
 						req.Get("query").Set(k, v)
 					}
