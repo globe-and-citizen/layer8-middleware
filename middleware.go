@@ -170,8 +170,8 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 			var body map[string]interface{}
 			json.Unmarshal(request.Body, &body)
 
-			if body["url_path"] != nil {
-				path, queryParams := utils.ParseURLPath(body["url_path"].(string))
+			if body["__url_path"] != nil {
+				path, queryParams := utils.ParseURLPath(body["__url_path"].(string))
 
 				req.Set("url", path)
 
@@ -181,6 +181,9 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 						req.Get("query").Set(k, v)
 					}
 				}
+
+				// Remove [__url_path] from body
+				delete(body, "__url_path")
 			}
 
 			req.Set("body", body)
