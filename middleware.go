@@ -128,12 +128,71 @@ func doECDHWithClient(request, response js.Value) {
 }
 
 func refreshJWTs(request, response js.Value) {
-	fmt.Println("***Refreshing JWT***")
 	headers := request.Get("headers")
-	// fmt.Println("headers: ", headers)
 
 	clientUUID := headers.Get("x-client-uuid").String()
 	fmt.Println("clientUUID: ", clientUUID)
+
+	var spSymmetricKey *utils.JWK
+	for _, v := range UUIDMapOfKeys {
+		if v[clientUUID] != nil {
+			spSymmetricKey = v[clientUUID]
+		}
+	}
+	if spSymmetricKey == nil {
+		doECDHWithClient(request, response)
+		return
+	}
+
+	var body string
+
+	request.Call("on", "data", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		body += args[0].Call("toString").String()
+		return nil
+	}))
+
+	request.Call("on", "end", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		// parse body and decrypt the "data" field
+		var enc map[string]interface{}
+		json.Unmarshal([]byte(body), &enc)
+
+		fmt.Println("body: ", body)
+		fmt.Println("enc: ", enc)
+
+		fmt.Println("enc from line 201: ", enc)
+		data, err := base64.URLEncoding.DecodeString(enc["data"].(string))
+		if err != nil {
+			fmt.Println("error decoding request:", err.Error())
+			response.Set("statusText", "Could not decode request: "+err.Error())
+			response.Set("statusCode", 500)
+			return nil
+		}
+
+		b, err := spSymmetricKey.SymmetricDecrypt(data)
+		if err != nil {
+			fmt.Println("error decrypting request:", err.Error())
+			response.Set("statusText", "Could not decrypt request: "+err.Error())
+			response.Set("statusCode", 500)
+			return nil
+		}
+
+		jreq, err := utils.FromJSONRequest(b)
+		if err != nil {
+			fmt.Println("error serializing json request:", err.Error())
+			response.Set("statusText", "Could not decode request: "+err.Error())
+			response.Set("statusCode", 500)
+			return nil
+		}
+
+		fmt.Println("jreq.Body: ", string(jreq.Body))
+
+		var reqBody map[string]interface{}
+		json.Unmarshal(jreq.Body, &reqBody)
+
+		fmt.Println("reqBody: ", reqBody)
+
+		return nil
+	}))
 
 	MpJWT := headers.Get("mp-jwt").String()
 	fmt.Println("MpJWT at SP BE (Middleware): ", MpJWT)
@@ -185,12 +244,14 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 
 	// Decide if this is a redirect to ECDH init.
 	isECDHInit := headers.Get("x-ecdh-init").String()
+	fmt.Println("isECDHInit", isECDHInit)
 	if isECDHInit != "<undefined>" {
 		doECDHWithClient(req, res)
 		return nil
 	}
 
 	isJWTRefresh := headers.Get("x-refresh-jwt").String()
+	fmt.Println("****isJWTRefresh Flag****: ", isJWTRefresh)
 	if isJWTRefresh != "<undefined>" {
 		refreshJWTs(req, res)
 		return nil
