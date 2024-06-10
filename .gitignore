@@ -157,3 +157,5 @@ out
 middleware.json
 
 /bin/middleware.wasm
+
+.vscode
