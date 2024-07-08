@@ -253,8 +253,81 @@ func static(this js.Value, args []js.Value) interface{} {
 		}
 	)
 
+	clientUUID := headers.Get("x-client-uuid").String()
+	if clientUUID == "<undefined>" {
+		return returnEncryptedImage()
+	}
+
+	var mpJWT string
+	for _, v := range db.JWTs {
+		if v[clientUUID] != "" {
+			mpJWT = v[clientUUID]
+		}
+	}
+
+	var sym *utils.JWK
+	for _, v := range db.Keys {
+		if v[clientUUID] != nil {
+			sym = v[clientUUID]
+		}
+	}
+	if sym == nil {
+		return returnEncryptedImage()
+	}
+
+	// var body string
+
+	// req.Call("on", "data", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+	// 	body += args[0].Call("toString").String()
+	// 	return nil
+	// }))
+	// req.Call("on", "end", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+	// 	// Occur under all circumstances:
+	// 	response, request := internals.ProcessData(body, sym)
+	// 	if response != nil {
+	// 		res.Set("statusCode", response.Status)
+	// 		res.Set("statusMessage", response.StatusText)
+	// 		return nil
+	// 	}
+
+	// 	req.Set("method", request.Method)
+	// 	for k, v := range request.Headers {
+	// 		headers.Set(k, v)
+	// 	}
+
+	// 	// Primary Decisiotn Point
+	// 	switch strings.ToLower(request.Headers["Content-Type"]) {
+	// 	default:
+	// 		if contentType, ok := request.Headers["Content-Type"]; !ok || contentType == "" {
+	// 			request.Headers["Content-Type"] = "application/json"
+	// 		}
+	// 		var body map[string]interface{}
+	// 		json.Unmarshal(request.Body, &body)
+
+	// 		if body["__url_path"] != nil {
+	// 			path, queryParams := utils.ParseURLPath(body["__url_path"].(string))
+
+	// 			req.Set("url", path)
+
+	// 			if queryParams != "" {
+	// 				queryParamsMap := utils.ParseQueryParams(queryParams)
+	// 				for k, v := range queryParamsMap {
+	// 					req.Get("query").Set(k, v)
+	// 				}
+	// 			}
+
+	// 			// Remove [__url_path] from body
+	// 			delete(body, "__url_path")
+	// 		}
+
+	// 		req.Set("body", body)
+	// 	}
+
+	// 	return nil
+	// }))
 	// get the file path
 	path := req.Get("url").String()
+	fmt.Println("*********************PATH***************************", path)
 	if path == "/" {
 		path = "/index.html"
 	}
@@ -282,27 +355,7 @@ func static(this js.Value, args []js.Value) interface{} {
 		return returnEncryptedImage()
 	}
 
-	clientUUID := headers.Get("x-client-uuid").String()
-	if clientUUID == "<undefined>" {
-		return returnEncryptedImage()
-	}
-
-	var mpJWT string
-	for _, v := range db.JWTs {
-		if v[clientUUID] != "" {
-			mpJWT = v[clientUUID]
-		}
-	}
-
-	var sym *utils.JWK
-	for _, v := range db.Keys {
-		if v[clientUUID] != nil {
-			sym = v[clientUUID]
-		}
-	}
-	if sym == nil {
-		return returnEncryptedImage()
-	}
+	
 
 	// read the file
 	buffer := fs.Call("readFileSync", path)
