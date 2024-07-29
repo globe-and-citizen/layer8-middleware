@@ -275,132 +275,126 @@ func static(this js.Value, args []js.Value) interface{} {
 		return returnEncryptedImage()
 	}
 
-	// var body string
+	var body string
 
-	// req.Call("on", "data", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
-	// 	body += args[0].Call("toString").String()
-	// 	return nil
-	// }))
-	// req.Call("on", "end", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
-	// 	// Occur under all circumstances:
-	// 	response, request := internals.ProcessData(body, sym)
-	// 	if response != nil {
-	// 		res.Set("statusCode", response.Status)
-	// 		res.Set("statusMessage", response.StatusText)
-	// 		return nil
-	// 	}
-
-	// 	req.Set("method", request.Method)
-	// 	for k, v := range request.Headers {
-	// 		headers.Set(k, v)
-	// 	}
-
-	// 	// Primary Decisiotn Point
-	// 	switch strings.ToLower(request.Headers["Content-Type"]) {
-	// 	default:
-	// 		if contentType, ok := request.Headers["Content-Type"]; !ok || contentType == "" {
-	// 			request.Headers["Content-Type"] = "application/json"
-	// 		}
-	// 		var body map[string]interface{}
-	// 		json.Unmarshal(request.Body, &body)
-
-	// 		if body["__url_path"] != nil {
-	// 			path, queryParams := utils.ParseURLPath(body["__url_path"].(string))
-
-	// 			req.Set("url", path)
-
-	// 			if queryParams != "" {
-	// 				queryParamsMap := utils.ParseQueryParams(queryParams)
-	// 				for k, v := range queryParamsMap {
-	// 					req.Get("query").Set(k, v)
-	// 				}
-	// 			}
-
-	// 			// Remove [__url_path] from body
-	// 			delete(body, "__url_path")
-	// 		}
-
-	// 		req.Set("body", body)
-	// 	}
-
-	// 	return nil
-	// }))
-	// get the file path
-	path := req.Get("url").String()
-	fmt.Println("*********************PATH***************************", path)
-	if path == "/" {
-		path = "/index.html"
-	}
-
-	path, err := url.QueryUnescape(path)
-	if err != nil {
-		println("error url decoding path:", err.Error())
-		res.Set("statusCode", 500)
-		res.Set("statusMessage", "Internal Server Error")
-		res.Call("end", "500 Internal Server Error")
+	req.Call("on", "data", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		body += args[0].Call("toString").String()
 		return nil
-	}
-
-	path = dir + path
-	exists := fs.Call("existsSync", path).Bool()
-	if !exists {
-		res.Set("statusCode", 404)
-		res.Set("statusMessage", "Not Found")
-		res.Call("end", "Cannot GET "+req.Get("url").String())
-		return nil
-	}
-
-	// return the default EncryptedImageData if the request is not a layer8 request
-	if headers.String() == "<undefined>" || headers.Get("x-tunnel").String() == "<undefined>" {
-		return returnEncryptedImage()
-	}
-
-	
-
-	// read the file
-	buffer := fs.Call("readFileSync", path)
-	b := make([]byte, buffer.Get("length").Int())
-	js.CopyBytesToGo(b, buffer)
-
-	// create a response object
-	jres := utils.Response{
-		Body:       b,
-		Status:     http.StatusOK,
-		StatusText: http.StatusText(http.StatusOK),
-		Headers: map[string]string{
-			"content-type": http.DetectContentType(b),
-		},
-	}
-
-	b, err = jres.ToJSON()
-	if err != nil {
-		println("error serializing json response:", err.Error())
-		res.Set("statusCode", 500)
-		res.Set("statusMessage", "Internal Server Error")
-		res.Call("end", "500 Internal Server Error")
-		return nil
-	}
-
-	// encrypt the file
-	encrypted, err := sym.SymmetricEncrypt(b)
-	if err != nil {
-		println("error encrypting file:", err.Error())
-		res.Set("statusCode", 500)
-		res.Set("statusMessage", "Internal Server Error")
-		res.Call("end", "500 Internal Server Error")
-		return nil
-	}
-
-	// send the response
-	res.Set("statusCode", jres.Status)
-	res.Set("statusMessage", jres.StatusText)
-	res.Call("set", js.ValueOf(map[string]interface{}{
-		"content-type": "application/json",
-		"mp-JWT":       mpJWT,
 	}))
-	res.Call("end", js.Global().Get("JSON").Call("stringify", js.ValueOf(map[string]interface{}{
-		"data": base64.URLEncoding.EncodeToString(encrypted),
-	})))
+	req.Call("on", "end", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		// Occur under all circumstances:
+		response, request := internals.ProcessData(body, sym)
+		if response != nil {
+			res.Set("statusCode", response.Status)
+			res.Set("statusMessage", response.StatusText)
+			return nil
+		}
+
+		req.Set("method", request.Method)
+		for k, v := range request.Headers {
+			headers.Set(k, v)
+		}
+
+		if contentType, ok := request.Headers["Content-Type"]; !ok || contentType == "" {
+			request.Headers["Content-Type"] = "application/json"
+		}
+		var body map[string]interface{}
+		json.Unmarshal(request.Body, &body)
+
+		if body["__url_path"] != nil {
+			path, queryParams := utils.ParseURLPath(body["__url_path"].(string))
+			req.Set("url", path)
+			fmt.Println("Path after setting: ", req.Get("url").String())
+			if queryParams != "" {
+				queryParamsMap := utils.ParseQueryParams(queryParams)
+				for k, v := range queryParamsMap {
+					req.Get("query").Set(k, v)
+				}
+			}
+
+			// Remove [__url_path] from body
+			delete(body, "__url_path")
+		}
+
+		// req.Set("body", body)
+
+		// get the file path
+		path := req.Get("url").String()
+		if path == "/" {
+			path = "/index.html"
+		}
+
+		path, err := url.QueryUnescape(path)
+		if err != nil {
+			println("error url decoding path:", err.Error())
+			res.Set("statusCode", 500)
+			res.Set("statusMessage", "Internal Server Error")
+			res.Call("end", "500 Internal Server Error")
+			return nil
+		}
+
+		path = dir + path
+		exists := fs.Call("existsSync", path).Bool()
+		if !exists {
+			res.Set("statusCode", 404)
+			res.Set("statusMessage", "Not Found")
+			res.Call("end", "Cannot GET "+req.Get("url").String())
+			return nil
+		}
+
+		// return the default EncryptedImageData if the request is not a layer8 request
+		if headers.String() == "<undefined>" || headers.Get("x-tunnel").String() == "<undefined>" {
+			return returnEncryptedImage()
+		}
+
+		// read the file
+		buffer := fs.Call("readFileSync", path)
+		b := make([]byte, buffer.Get("length").Int())
+		js.CopyBytesToGo(b, buffer)
+
+		// create a response object
+		jres := utils.Response{
+			Body:       b,
+			Status:     http.StatusOK,
+			StatusText: http.StatusText(http.StatusOK),
+			Headers: map[string]string{
+				"content-type": http.DetectContentType(b),
+			},
+		}
+
+		b, err = jres.ToJSON()
+		if err != nil {
+			println("error serializing json response:", err.Error())
+			res.Set("statusCode", 500)
+			res.Set("statusMessage", "Internal Server Error")
+			res.Call("end", "500 Internal Server Error")
+			return nil
+		}
+
+		// encrypt the file
+		encrypted, err := sym.SymmetricEncrypt(b)
+		if err != nil {
+			println("error encrypting file:", err.Error())
+			res.Set("statusCode", 500)
+			res.Set("statusMessage", "Internal Server Error")
+			res.Call("end", "500 Internal Server Error")
+			return nil
+		}
+
+		// send the response
+		res.Set("statusCode", jres.Status)
+		res.Set("statusMessage", jres.StatusText)
+		res.Call("set", js.ValueOf(map[string]interface{}{
+			"content-type": "application/json",
+			"mp-JWT":       mpJWT,
+		}))
+		res.Call("end", js.Global().Get("JSON").Call("stringify", js.ValueOf(map[string]interface{}{
+			"data": base64.URLEncoding.EncodeToString(encrypted),
+		})))
+
+		return nil
+	}))
+
 	return nil
 }
 
