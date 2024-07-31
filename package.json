@@ -3,6 +3,7 @@
   "version": "0.0.12",
   "description": "The Middleware portion of the Layer8 pipeline",
   "main": "index.js",
+  "types": "index.d.ts",
   "scripts": {
     "test": "echo \"Testing goes here...\" && exit 0"
   },
@@ -30,6 +31,7 @@
   "files": [
     "index.js",
     "./dist/middleware.json",
-    "./dist/wasm_exec.js"
+    "./dist/wasm_exec.js",
+    "index.d.ts"
   ]
 }
