@@ -144,6 +144,11 @@ func WASMMiddleware_v2(this js.Value, args []js.Value) interface{} {
 			// clear the body as it will be replaced by the formdata
 			request.Body = nil
 
+			// get the url path
+			urlPath := getUrlPathFromBody(reqBody)
+
+			req.Set("url", urlPath)
+
 			// pass in reqBody and get out a formData
 			formdata, err := convertBodyToFormdata(reqBody)
 			if err != nil {
@@ -396,6 +401,7 @@ func static(this js.Value, args []js.Value) interface{} {
 }
 
 func multipart(this js.Value, args []js.Value) interface{} {
+	fmt.Println("ProcessMultipart Ran")
 	var (
 		options = args[0]
 		fs      = args[1]
@@ -560,6 +566,19 @@ func MapOfStringsToMapOfInterfaces(m map[string]string) map[string]interface{} {
 }
 
 // ADDED FUNCTIONS
+
+func getUrlPathFromBody(reqBody map[string]interface{}) string {
+	for _, v := range reqBody {
+		for _, val := range v.([]interface{}) {
+			val := val.(map[string]interface{})
+			switch val["_type"].(string) {
+			case "String":
+				return val["value"].(string)
+			}
+		}
+	}
+	return ""
+}
 
 func convertBodyToFormdata(reqBody map[string]interface{}) (js.Value, error) {
 	formdata := js.Global().Get("FormData").New()
