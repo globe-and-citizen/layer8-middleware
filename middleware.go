@@ -306,7 +306,6 @@ func static(this js.Value, args []js.Value) interface{} {
 		if body["__url_path"] != nil {
 			path, queryParams := utils.ParseURLPath(body["__url_path"].(string))
 			req.Set("url", path)
-			fmt.Println("Path after setting: ", req.Get("url").String())
 			if queryParams != "" {
 				queryParamsMap := utils.ParseQueryParams(queryParams)
 				for k, v := range queryParamsMap {
@@ -401,7 +400,6 @@ func static(this js.Value, args []js.Value) interface{} {
 }
 
 func multipart(this js.Value, args []js.Value) interface{} {
-	fmt.Println("ProcessMultipart Ran")
 	var (
 		options = args[0]
 		fs      = args[1]
@@ -553,7 +551,6 @@ func async_test_WASM(this js.Value, args []js.Value) interface{} {
 }
 
 func TestWASM(this js.Value, args []js.Value) interface{} {
-	fmt.Println("TestWasm Ran")
 	return js.ValueOf("42")
 }
 
