@@ -1,0 +1,17 @@
+name: Go test for the internals package
+on: [push]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21.1'
+      - name: Install dependencies
+        run: go get -v -t -d ./...
+      - name: Test the internals package
+        run: go test -v ./internals/...
